@@ -1,4 +1,4 @@
-﻿"""Geração de LUTs .cube para os nós de CST (Input e Output)."""
+"""Geração de LUTs .cube para os nós de CST (Input e Output)."""
 from __future__ import annotations
 
 import os
@@ -64,21 +64,19 @@ def apply_cube(table: np.ndarray, size: int, rgb: np.ndarray) -> np.ndarray:
     return out
 
 
-MASTER_LUT_ROOT_WIN = Path(r"C:\ProgramData\Blackmagic Design\DaVinci Resolve\Support\LUT")
-
-
 def default_lut_root() -> Path:
-    """Pasta mestre de LUTs do Resolve no Windows.
+    """Primeira pasta de LUT do Resolve em que dá para gravar (pasta mestre primeiro).
 
-    Medido no Resolve 21.1.2: SetLUT falha com LUTs em %APPDATA%\\...\\Support\\LUT
-    (a pasta não é varrida por padrão), mas funciona na pasta mestre em ProgramData
-    depois de RefreshLUTList(). Se ela não for gravável, cai para %APPDATA%.
+    Medido no Windows (Resolve 21.1.2): SetLUT falha com LUTs na pasta LUT do %APPDATA%
+    (a pasta não é varrida por padrão), mas funciona na pasta mestre depois de RefreshLUTList().
     """
-    if MASTER_LUT_ROOT_WIN.is_dir() and os.access(MASTER_LUT_ROOT_WIN, os.W_OK):
-        return MASTER_LUT_ROOT_WIN
-    appdata = os.environ.get("APPDATA", str(Path.home() / "AppData" / "Roaming"))
-    return Path(appdata) / "Blackmagic Design" / "DaVinci Resolve" / "Support" / "LUT"
+    from .paths import lut_roots
 
+    roots = lut_roots()
+    for r in roots:
+        if r.is_dir() and os.access(r, os.W_OK):
+            return r
+    return roots[-1]
 
 def build_cst_luts(profile_key: str, out_dir: str | os.PathLike) -> dict[str, Path]:
     prof = pf.get_profile(profile_key)

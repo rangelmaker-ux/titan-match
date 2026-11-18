@@ -48,7 +48,9 @@ ROLE_INFO: dict[str, tuple[str, str]] = {
 # Ordem de processamento (simulação) dos nós que alteram cor de forma calculada.
 CHAIN_ORDER = ["white_balance", "exposure_contrast", "shadows", "midtones", "highlights",
                "color_balance", "saturation", "skin"]
-TEMPLATES_DIR = Path(__file__).resolve().parents[2] / "templates"
+from .paths import app_root
+
+TEMPLATES_DIR = app_root() / "templates"
 
 
 @dataclass

@@ -1,4 +1,4 @@
-﻿"""Linha de comando do Titan Match."""
+"""Linha de comando do Titan Match."""
 from __future__ import annotations
 
 import argparse

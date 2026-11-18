@@ -22,7 +22,9 @@ from .templates import load_templates
 
 PREVIEW_W = 236
 PREVIEW_H = 133
-ROOT_DIR = Path(__file__).resolve().parents[2]
+from .paths import app_root, user_data_dir
+
+ROOT_DIR = app_root()
 TEMPLATES_DIR = ROOT_DIR / "templates"
 ASSETS_DIR = ROOT_DIR / "assets"
 APP_ID = "Titan.TitanMatch"
@@ -60,10 +62,7 @@ def default_template() -> Path | None:
 
 
 def _config_path() -> Path:
-    import os
-
-    base = os.environ.get("LOCALAPPDATA", str(Path.home()))
-    return Path(base) / "TitanMatch" / "config.json"
+    return user_data_dir() / "config.json"
 
 
 def _load_config() -> dict:
@@ -187,6 +186,10 @@ class TitanMatchApp(tk.Tk):
         self.pin_btn = head_btn("📌", self._toggle_topmost, TEXT_MUTED)
         self.pin_btn.pack(side="right", padx=(6, 16), pady=14)
         head_btn("≡  Logs", self._show_logs).pack(side="right", padx=(6, 0), pady=14)
+        self.lic_btn = head_btn("🔑", self._show_license, TEXT_MUTED)
+        self.lic_btn.pack(side="right", padx=(6, 0), pady=14)
+        self.update_btn = head_btn("⬆ Atualizar", self._do_update, VIOLET)  # aparece só com versão nova
+        self._release = None
         head_btn("⟳", self._check_resolve, VIOLET).pack(side="right", padx=(6, 0), pady=14)
         self.conn_pill = tk.Label(header, text="●  Verificando Resolve…", bg=BG_SURFACE, fg=TEXT_MUTED,
                                   font=(FONT, 9, "bold"), padx=10, pady=4, highlightthickness=1,
@@ -366,6 +369,8 @@ class TitanMatchApp(tk.Tk):
         self._on_brand(select=start.key)
         self.after(200, lambda: self._dark_title_bar(self))
         self.after(300, self._check_resolve)
+        self.after(600, self._check_license)
+        self.after(1500, self._check_update)
 
     # ------------------------------------------------------------ visual
     def _image(self, name):
@@ -453,6 +458,119 @@ class TitanMatchApp(tk.Tk):
         d = log_dir()
         d.mkdir(parents=True, exist_ok=True)
         os.startfile(str(d))
+
+    # ------------------------------------------------------------ licença
+    def _check_license(self, online: bool = True):
+        from . import licenca
+
+        def work():
+            st = licenca.status(online=online)
+            self.after(0, self._apply_license_state, st)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _apply_license_state(self, st):
+        self.license_state = st
+        self.lic_btn.configure(fg=GREEN if (st.valid and "ativa" in st.reason.lower() and "não" not in st.reason.lower())
+                               else (RED if not st.valid else TEXT_MUTED))
+        if not st.valid:
+            for b in (self.apply_btn,):
+                b.configure(state="disabled")
+            self.status.set("Licença: " + st.reason)
+            self._show_license()
+
+    def _show_license(self):
+        from . import licenca
+
+        win = tk.Toplevel(self)
+        win.title("Titan Match — Licença")
+        win.configure(bg=BG_MAIN)
+        win.resizable(False, False)
+        win.transient(self)
+        try:
+            win.iconbitmap(str(ASSETS_DIR / "titan_match.ico"))
+        except tk.TclError:
+            pass
+        box = self._card(win, "🔑", "Licença Titan Loja", "Cole a chave que você recebeu na compra.", PURPLE)
+        box.master.pack_configure(padx=14, pady=14)
+        st = licenca.status(online=False)
+        tk.Label(box, text=("Situação: " + st.reason + (f"  ({st.nome})" if st.nome else "")), bg=BG_SURFACE,
+                 fg=GREEN if st.valid and "ativa" in st.reason else TEXT_MUTED, font=(FONT, 9)).pack(anchor="w")
+        var = tk.StringVar()
+        e = ttk.Entry(box, textvariable=var, width=46, style="Titan.TEntry")
+        e.pack(fill="x", pady=(8, 8))
+        msg = tk.StringVar(value="" if licenca.ENFORCE_LICENSE else
+                           "Durante o lançamento a licença ainda não é obrigatória.")
+        tk.Label(box, textvariable=msg, bg=BG_SURFACE, fg=TEXT_DIM, font=(FONT, 8), wraplength=360,
+                 justify="left").pack(anchor="w")
+
+        def ativar():
+            try:
+                s = licenca.activate(var.get())
+            except Exception as ex:  # noqa: BLE001
+                msg.set(str(ex))
+                return
+            msg.set(s.reason)
+            self._apply_license_state(s)
+            self.after(800, win.destroy)
+
+        row = tk.Frame(box, bg=BG_SURFACE)
+        row.pack(fill="x", pady=(10, 0))
+        TitanButton(row, "Ativar", ativar, kind="primary").pack(side="left")
+        TitanButton(row, "Fechar", win.destroy).pack(side="left", padx=8)
+        e.focus_set()
+        self.after(100, lambda: self._dark_title_bar(win))
+
+    # ------------------------------------------------------------ atualização
+    def _check_update(self):
+        from . import update
+
+        def work():
+            st, rel = update.check()
+            get_logger().info("atualização: %s %s", st, rel.version if rel else "")
+            if st == "available":
+                self.after(0, self._offer_update, rel)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _offer_update(self, rel):
+        self._release = rel
+        self.update_btn.configure(text=f"⬆ v{rel.version}")
+        self.update_btn.pack(side="right", padx=(6, 0), pady=14)
+
+    def _do_update(self):
+        from . import update
+
+        rel = self._release
+        if not rel:
+            return
+        if not update.installed_layout():
+            messagebox.showinfo("Titan Match", "Modo desenvolvimento: atualize pelo git (git pull).")
+            return
+        if not messagebox.askyesno("Atualizar Titan Match",
+                                   f"Instalar a versão {rel.version}?\n\nUm backup da versão atual é guardado."):
+            return
+        self.status.set("Baixando atualização…")
+        self._set_progress_style("busy")
+        self.progress["value"] = 30
+
+        def work():
+            try:
+                pkg = update.download(rel)
+                update.install_package(pkg, rel.version)
+            except Exception as ex:  # noqa: BLE001
+                self._report_error(ex)
+                return
+
+            def done():
+                self.progress["value"] = 100
+                self._set_progress_style("done")
+                self.status.set(f"Atualizado para {rel.version}. Feche e abra o Titan Match.")
+                messagebox.showinfo("Titan Match", f"Atualizado para a versão {rel.version}.\n\n"
+                                                   "Feche e abra o Titan Match para usar a nova versão.")
+            self.after(0, done)
+
+        threading.Thread(target=work, daemon=True).start()
 
     def _toggle_topmost(self):
         on = not bool(self.attributes("-topmost"))
@@ -545,7 +663,7 @@ class TitanMatchApp(tk.Tk):
                 name = br.project.GetName()
                 self.bridge = br
                 self.after(0, lambda: self.conn_pill.configure(
-                    text=f"●  Resolve conectado — {name[:18]}", fg=GREEN, highlightbackground=GREEN))
+                    text=f"●  Resolve — {name[:14]}", fg=GREEN, highlightbackground=GREEN))
             except Exception:  # noqa: BLE001
                 self.after(0, lambda: self.conn_pill.configure(
                     text="●  Resolve desconectado", fg=RED, highlightbackground=RED))

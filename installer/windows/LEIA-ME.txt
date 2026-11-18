@@ -1,0 +1,12 @@
+TITAN MATCH — Windows
+
+1. Extraia o ZIP inteiro.
+2. Dê dois cliques em "Instalar_Windows.bat" e clique em "Instalar / atualizar".
+3. No DaVinci Resolve Studio: página Color > Workspace > Scripts > Titan Match.
+
+Requisitos: DaVinci Resolve Studio 21 ou mais novo, com Preferences > System > General >
+External scripting = Local. O Python já vem incluído; não é preciso instalar nada.
+
+Atualizações: o próprio Titan Match avisa quando houver uma versão nova (botão "⬆" no topo).
+Licença: botão "🔑" no topo da janela, com a chave da Titan Loja.
+Remover: rode o instalador de novo e clique em "Remover" (licença e configurações são mantidas).

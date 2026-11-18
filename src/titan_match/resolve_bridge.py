@@ -28,8 +28,9 @@ from .engine import decode_image_bytes, export_luts
 from .nodes import GradePlan
 from .templates import BASIC, ROLE_INFO, Template
 
-WIN_API = r"C:\ProgramData\Blackmagic Design\DaVinci Resolve\Support\Developer\Scripting"
-WIN_LIB = r"C:\Program Files\Blackmagic Design\DaVinci Resolve\fusionscript.dll"
+from .paths import resolve_scripting
+
+WIN_API, WIN_LIB = resolve_scripting()  # nomes mantidos por compatibilidade; valem para Windows e macOS
 
 
 class ResolveError(RuntimeError):

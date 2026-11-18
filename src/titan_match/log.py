@@ -13,8 +13,9 @@ _LOGGER: logging.Logger | None = None
 
 
 def log_dir() -> Path:
-    base = os.environ.get("LOCALAPPDATA", str(Path.home()))
-    return Path(base) / "TitanMatch" / "Logs"
+    from .paths import log_dir as _ld
+
+    return _ld()
 
 
 def get_logger() -> logging.Logger:
