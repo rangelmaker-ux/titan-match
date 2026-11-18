@@ -33,7 +33,7 @@ GRACE = 14 * 24 * 3600          # sem conseguir revalidar (offline)
 UPDATE_GRACE_DIAS = 7           # igual a GRACE_DIAS da loja
 
 # Liga a exigência da chave. Fica False até o produto "match" estar à venda na loja.
-ENFORCE_LICENSE = False
+ENFORCE_LICENSE = True
 
 
 class LicenseError(RuntimeError):
