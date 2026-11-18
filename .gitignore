@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+# Artefatos de teste no Resolve (frames reais, projetos de teste): nunca publicar
+tools/_live/
+# Saída dos builds de instalador
+build/
+dist/

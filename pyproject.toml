@@ -1,0 +1,22 @@
+[project]
+name = "titan-match"
+version = "0.1.0"
+description = "Titan Match — color matching por referência para DaVinci Resolve Studio (família Titan)"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.26", "Pillow>=10"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "colour-science>=0.4.4"]
+
+[project.scripts]
+titan-match = "titan_match.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
