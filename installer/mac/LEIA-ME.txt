@@ -1,14 +1,20 @@
 TITAN MATCH — macOS
 
-1. Extraia o ZIP inteiro.
+1. Dê dois cliques no ZIP para extrair (o Finder cria a pasta "Titan-Match-macOS").
 2. Dê dois cliques em "Instalar_Titan_Match.command".
-   Se o macOS bloquear: botão direito no arquivo > Abrir > Abrir.
-3. No DaVinci Resolve Studio: página Color > Workspace > Scripts > Titan Match.
+   Se o macOS disser que não pode abrir porque o desenvolvedor não foi verificado:
+     - macOS 13 e 14: botão direito no arquivo > Abrir > Abrir.
+     - macOS 15 (Sequoia) ou mais novo: clique em "OK", abra Ajustes do Sistema >
+       Privacidade e Segurança, role até o fim e clique em "Abrir Mesmo Assim"; depois
+       dê dois cliques no instalador de novo e confirme com a sua senha do Mac.
+   O Terminal abre e instala. No fim ele pode pedir a senha do Mac (para criar a pasta de LUTs).
+3. Abra (ou reinicie) o DaVinci Resolve Studio: página Color > Workspace > Scripts > Titan Match.
+4. Na janela do Titan Match, clique no 🔑 e cole a sua chave.
 
 Requisitos: DaVinci Resolve Studio 21 ou mais novo, com Preferences > System > General >
-External scripting = Local. O Python já vem incluído.
+External scripting using = Local. O Python já vem incluído.
 
-Use o pacote certo para o seu Mac: "aarch64" para Apple Silicon (M1/M2/M3/M4, macOS 13 ou mais novo)
+Use o pacote certo para o seu Mac: "aarch64" para chip Apple (M1/M2/M3/M4, macOS 13 ou mais novo)
 e "x86_64" para Intel (macOS 14 ou mais novo).
-Atualizações: botão "⬆" no topo da janela. Licença: botão "🔑".
+Atualizações: botão "⬆" no topo da janela.
 Remover: no Terminal, rode o instalador com --remover (licença e configurações são mantidas).
