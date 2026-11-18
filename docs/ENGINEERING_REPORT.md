@@ -197,3 +197,25 @@ Três bugs foram encontrados e corrigidos durante o teste real:
 - `ExportFrame` agora tenta de novo até 3 vezes ("Failed to render frame" logo após trocar de timeline).
 - **Não verificado:** tracking do Magic Mask em clipes de vídeo com movimento (o teste foi num still). Os braços
   só entram com cliques adicionais.
+
+## Atualização 18/11/2026 (5): instaladores, atualização automática, licença e cor da névoa
+
+**Implementado**
+- Instalador Windows (`tools/build_windows.ps1` → `dist/Titan-Match-Windows-<v>.zip`) com Python 3.12 embutido.
+- Instalador macOS: `tools/build_mac.sh` (Python portátil python-build-standalone com Tkinter, arm64 ou x86_64),
+  `installer/mac/Instalar_Titan_Match.command`, lançador `installer/mac/Titan Match.py`, `.gitattributes` com LF.
+- Atualização por GitHub Releases (`update.py`, repositório `rangelmaker-ux/titan-match`) e licença da Titan Loja
+  (`licenca.py`, `ENFORCE_LICENSE=False` até a loja ter `/api/match-licenca` — ver `docs/LOJA_ENDPOINT.md`).
+- Cor automática da névoa: `features.haze_tint` usa a cor da luz atmosférica da referência; quando ela é neutra
+  (fumaça branca), puxa para a tonalidade dos médios-altos do grade. Vira um Offset de média zero (só tinge, não
+  levanta o preto), proporcional à densidade, com teto de 0,03 por canal, escrito no nó HAZE via SetCDL. Pode ser
+  desligada pela opção "cor auto" ao lado de Neblina. Origem registrada no dry-run.
+
+**Testado**: 143 testes (3 novos de cor da névoa); motor de ponta a ponta com névoa azulada → Offset para o azul;
+build e instalação silenciosa no Windows; sintaxe dos scripts de Mac (`bash -n`).
+
+**Não verificado**: instalador macOS num Mac real; se o Offset no nó HAZE fica antes ou depois do OFX Cinematic Haze
+no processamento do Resolve (tinge a imagem do nó de qualquer forma, mas não a cor interna do efeito, que a API
+não ajusta).
+
+**Bloqueado**: publicação no GitHub (precisa do seu login); endpoint da licença na Titan Loja.

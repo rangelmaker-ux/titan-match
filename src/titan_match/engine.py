@@ -197,9 +197,17 @@ def analyze(
             d = extras.get(tn.role)
             on = bool(d and d.enabled)
             prov = [Provenance("ligar/desligar", d.reason, _jsonable(d.measured))] if d else []
-            nodes.append(NodeSpec(i, tn.role, tn.label, tn.color, cdl=CDL(), enabled=on, provenance=prov,
-                                  notes=["Efeito pré-configurado no template; a API não ajusta a intensidade, "
-                                         "só liga/desliga."]))
+            notes = ["Efeito pré-configurado no template; a API não ajusta a intensidade, só liga/desliga."]
+            cdl = CDL()
+            tint = d.measured.get("cor") if (d and tn.role == "haze") else None
+            if tint and options.haze_color:
+                cdl = CDL(offset=tuple(tint["offset"]))
+                if s < 1.0:
+                    cdl = cdl.scaled(s)
+                prov.append(Provenance("Offset (cor da névoa)", f"origem: {tint['origem']}", _jsonable(tint),
+                                       note="Offset de média zero no nó HAZE: tinge a névoa sem levantar o preto."))
+                notes.append(f"Cor da névoa automática: {tint['origem']}.")
+            nodes.append(NodeSpec(i, tn.role, tn.label, tn.color, cdl=cdl, enabled=on, provenance=prov, notes=notes))
 
     plan = GradePlan(profile_key, result.matcher, nodes, template_key=tpl.key, template_title=tpl.title,
                      template_reason=reason, strength=s)

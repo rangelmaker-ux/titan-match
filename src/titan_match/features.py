@@ -205,6 +205,44 @@ def haze_measure(display: np.ndarray) -> dict:
             "contraste_p95_p5": round(contrast, 4)}
 
 
+HAZE_TINT_NEUTRAL = 0.03  # croma (RGB display) abaixo disso = luz da névoa da referência é "branca"
+HAZE_TINT_GAIN = 0.6      # fração do croma alvo que vira Offset no nó HAZE (por unidade de densidade)
+HAZE_TINT_MAX = 0.03      # teto do Offset por canal (espaço de trabalho)
+
+
+def haze_tint(ref_airlight_rgb, graded_display: np.ndarray, density: float) -> dict:
+    """Cor da névoa: a fumaça raramente é branca pura — pega a tonalidade do ar da referência
+    e, quando o ar da referência é neutro, a tonalidade do próprio grade que está sendo construído.
+
+    Modelo de névoa: I = J·t + A·(1−t). A parte A·(1−t) é aditiva, então a cor vira um Offset
+    (média zero: só tinge, não levanta o preto) no nó HAZE, proporcional à densidade.
+    Retorna o Offset em espaço de trabalho e a origem de cada número.
+    """
+    air = np.asarray(ref_airlight_rgb, dtype=np.float64)
+    air_chroma = air - air.mean()
+    g = np.clip(np.asarray(graded_display, dtype=np.float64), 0, 1).reshape(-1, 3)
+    luma = g @ np.array([0.2126, 0.7152, 0.0722])
+    # Tonalidade do grade: médios-altos (onde a névoa aparece), não as sombras.
+    sel = (luma > np.percentile(luma, 40)) & (luma < np.percentile(luma, 97))
+    tone = g[sel].mean(axis=0) if sel.any() else g.mean(axis=0)
+    tone_chroma = tone - tone.mean()
+    w_air = float(np.clip(np.abs(air_chroma).max() / HAZE_TINT_NEUTRAL, 0.0, 1.0))
+    target = w_air * air_chroma + (1.0 - w_air) * tone_chroma
+    # Display -> trabalho: diferença entre a cor alvo e o cinza de mesma luminância.
+    base = float(np.clip(air.mean(), 0.2, 0.8))
+    col_w = pf.display_to_working(np.clip(np.array([[base + target]]), 0, 1))[0, 0]
+    gray_w = pf.display_to_working(np.array([[[base, base, base]]]))[0, 0]
+    off = (col_w - gray_w) * HAZE_TINT_GAIN * float(np.clip(density, 0.0, 1.0))
+    off = np.clip(off - off.mean(), -HAZE_TINT_MAX, HAZE_TINT_MAX)
+    origem = ("luz atmosférica da referência" if w_air >= 0.99 else
+              "tonalidade do grade (ar da referência neutro)" if w_air <= 0.01 else
+              f"mistura: {round(w_air * 100)} % ar da referência + {round((1 - w_air) * 100)} % tonalidade do grade")
+    return {"offset": [round(float(x), 5) for x in off], "origem": origem,
+            "croma_ar_ref": [round(float(x), 4) for x in air_chroma],
+            "croma_grade": [round(float(x), 4) for x in tone_chroma],
+            "peso_ar_ref": round(w_air, 3), "densidade": round(float(density), 3)}
+
+
 @dataclass
 class Decision:
     role: str
@@ -254,6 +292,8 @@ def decide_extras(src_working: np.ndarray, ref_working: np.ndarray, graded_displ
         f"{HAZE_AIRLIGHT[0]} e {HAZE_AIRLIGHT[1]}; modo: {haze_mode}; densidade sugerida ≈ {round(strength * 100)} % "
         "(heurística: imagem lavada ou parede clara podem parecer névoa)",
         {"ref": hz_ref, "resultado": hz_out, "densidade_sugerida": round(strength, 3)})
+
+    out["haze"].measured["cor"] = haze_tint(hz_ref["luz_atmosferica_rgb"], graded_display, strength if auto else 0.35)
 
     look = film_emulation or grain or glow or hal
     out["look"] = Decision("look", look, "liga se film emulation pedida ou se grão/glow/halation foram detectados",

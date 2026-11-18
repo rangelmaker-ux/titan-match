@@ -1,0 +1,12 @@
+* text=auto
+# Scripts executados no macOS precisam de LF
+*.sh text eol=lf
+*.command text eol=lf
+installer/mac/** text eol=lf
+# Arquivos do Windows
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+# Binários
+*.drx binary
+*.png binary
+*.ico binary

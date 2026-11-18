@@ -24,6 +24,7 @@ class MatchOptions:
     separate_skin: bool = True  # estatísticas de entorno ignoram a pele
     template: str = "auto"  # "auto" ou chave de template
     haze: str = "auto"  # neblina/fumaça: "auto" (detecta na referência), "on" ou "off"
+    haze_color: bool = True  # tinge a névoa com a cor do ar da referência / do grade (Offset no nó HAZE)
     skin_ambience: float = 0.35  # quanto da cor do ambiente a pele recebe (0 = original, 1 = igual ao resto)
     source_exclude: np.ndarray | None = None  # preenchido pelo engine (máscara de pele do footage)
     progress: object = None  # callable(pct: float, msg: str) ou None

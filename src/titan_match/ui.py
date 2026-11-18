@@ -296,6 +296,9 @@ class TitanMatchApp(tk.Tk):
         self.haze_var = tk.StringVar(value={v: k for k, v in self.haze_names.items()}.get(cfg.get("haze", "auto"), "Auto"))
         ttk.Combobox(hz, textvariable=self.haze_var, values=list(self.haze_names), state="readonly", width=9,
                      style="Titan.TCombobox").pack(side="left", padx=(6, 0))
+        self.haze_color_var = tk.BooleanVar(value=bool(cfg.get("haze_color", True)))
+        ttk.Checkbutton(hz, text="cor auto", variable=self.haze_color_var,
+                        style="Titan.TCheckbutton").pack(side="left", padx=(6, 0))
         self._field_label(mt, "Árvore de nós", 4, 0)
         self.templates = load_templates()
         self.tree_names = {"Automática (pela análise)": "auto"}
@@ -775,7 +778,8 @@ class TitanMatchApp(tk.Tk):
     def _match_options(self) -> MatchOptions:
         _save_config(strength=int(self.strength_var.get()), separate_skin=self.separate_var.get(),
                      protect_skin=self.protect_var.get(), film=self.film_var.get(),
-                     haze=self.haze_names[self.haze_var.get()], skin_ambience=self.amb_names[self.amb_var.get()])
+                     haze=self.haze_names[self.haze_var.get()], haze_color=self.haze_color_var.get(),
+                     skin_ambience=self.amb_names[self.amb_var.get()])
         return MatchOptions(
             film_emulation=self.film_var.get(),
             strength=float(self.strength_var.get()) / 100.0,
@@ -783,6 +787,7 @@ class TitanMatchApp(tk.Tk):
             separate_skin=self.separate_var.get(),
             template=self.tree_names[self.tree_var.get()],
             haze=self.haze_names[self.haze_var.get()],
+            haze_color=self.haze_color_var.get(),
             skin_ambience=self.amb_names[self.amb_var.get()],
             progress=lambda p, m: self.after(0, self._set_progress, p, m),
         )

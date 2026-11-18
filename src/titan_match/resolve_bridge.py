@@ -282,7 +282,7 @@ class ResolveBridge:
                 self._call(rep, f"SetLUT({idx})", g.SetLUT(idx, n.lut_path))
                 if not (g.GetLUT(idx) or ""):
                     rep.errors.append(f"GetLUT({idx}) vazio após SetLUT — LUT não aplicado.")
-            if n.cdl is not None and ROLE_INFO[n.role][0] in ("cdl", "skin"):
+            if n.cdl is not None and (ROLE_INFO[n.role][0] in ("cdl", "skin") or n.role == "haze"):
                 self._call(rep, f"SetCDL({idx})", item.SetCDL(n.cdl.to_resolve(idx)))
             enabled = bool(n.enabled)
             if n.role == "skin" and enabled:
