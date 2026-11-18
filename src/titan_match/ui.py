@@ -529,6 +529,12 @@ class TitanMatchApp(tk.Tk):
         from . import update
 
         def work():
+            from . import licenca
+
+            lic = licenca.status(online=False)
+            if licenca.ENFORCE_LICENSE and not lic.atualizacoes:
+                get_logger().info("atualização: bloqueada pela licença (%s)", lic.reason)
+                return
             st, rel = update.check()
             get_logger().info("atualização: %s %s", st, rel.version if rel else "")
             if st == "available":
