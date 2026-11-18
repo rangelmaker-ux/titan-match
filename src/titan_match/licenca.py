@@ -125,6 +125,14 @@ def _post(rota: str, payload: dict, poster=None) -> tuple[int, dict]:
             return e.code, {"erro": f"A loja respondeu {e.code}."}
 
 
+MSG_FIM_TESTE = ("Seu teste grátis de 3 dias terminou. Para continuar usando o Titan Match, "
+                 "compre na Titan Loja: titan-loja.pages.dev")
+
+
+def _quando(ts: float | None) -> str:
+    return time.strftime("%d/%m %H:%M", time.localtime(ts)) if ts else "?"
+
+
 def _updates_ok(expira: float | None, now: float) -> bool:
     return expira is None or now < expira + UPDATE_GRACE_DIAS * 86400
 
@@ -142,9 +150,12 @@ def activate(chave: str, poster=None, now: float | None = None) -> LicenseState:
     if code != 200 or not resp.get("ok"):
         raise LicenseError(resp.get("erro") or "Chave inválida.")
     expira = _ts(resp.get("valida_ate"))
+    teste = bool(resp.get("teste"))
     d = {"hash": key_hash(chave), "final": chave[-4:], "dispositivo": device_id(), "ativado_em": now,
-         "verificado_em": now, "expira_em": expira}
+         "verificado_em": now, "expira_em": expira, "teste": teste}
     _save(d)
+    if teste:
+        return LicenseState(True, f"Teste grátis ativo até {_quando(expira)}.", f"chave final {d['final']}", expira, True)
     return LicenseState(True, "Licença ativa.", f"chave final {d['final']}", expira, _updates_ok(expira, now))
 
 
@@ -164,12 +175,18 @@ def status(poster=None, now: float | None = None, online: bool = True) -> Licens
         if code == 200 and resp.get("ok"):
             d["verificado_em"] = now
             d["expira_em"] = _ts(resp.get("valida_ate")) or d.get("expira_em")
+            d["teste"] = bool(resp.get("teste"))
             _save(d)
             last = now
-        elif code in (403, 409):  # chave bloqueada / liberada deste computador pela loja
+        elif code in (402, 403, 409):  # teste encerrado / chave bloqueada / liberada deste computador pela loja
             return LicenseState(not ENFORCE_LICENSE, resp.get("erro") or "Licença recusada pela loja.", nome,
                                 atualizacoes=False)
     expira = d.get("expira_em")
+    if d.get("teste"):
+        # Teste grátis: vencido = acesso cortado na hora, mesmo sem internet.
+        if not expira or now > expira:
+            return LicenseState(not ENFORCE_LICENSE, MSG_FIM_TESTE, nome, expira, False)
+        return LicenseState(True, f"Teste grátis ativo até {_quando(expira)}.", nome, expira, True)
     upd = _updates_ok(expira, now)
     if now - last > GRACE:
         return LicenseState(not ENFORCE_LICENSE, "Conecte à internet para revalidar a licença.", nome, expira, False)

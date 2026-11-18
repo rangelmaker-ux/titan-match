@@ -79,3 +79,20 @@ def test_not_activated_blocks_only_when_enforced(monkeypatch):
     assert not licenca.status(now=0).valid
     monkeypatch.setattr(licenca, "ENFORCE_LICENSE", False)
     assert licenca.status(now=0).valid
+
+
+def test_trial_key_is_cut_off_right_after_expiry_even_offline():
+    def loja_teste(rota, payload):
+        return 200, {"ok": True, "valida_ate": "1970-01-04T00:00:00Z", "teste": True}
+    st = licenca.activate("TITAN-TEST", poster=loja_teste, now=0)
+    assert st.valid and "Teste grátis" in st.reason
+    fim = 3 * 86400
+    assert licenca.status(now=fim - 60, online=False).valid
+    st = licenca.status(now=fim + 60, online=False)
+    assert not st.valid and "terminou" in st.reason and "Titan Loja" in st.reason
+
+
+def test_store_402_ends_trial():
+    licenca.activate("ABC", poster=loja(), now=0)
+    st = licenca.status(poster=loja(code=402, erro="Seu teste grátis de 3 dias terminou."), now=licenca.VERIFY_EVERY + 1)
+    assert not st.valid and "terminou" in st.reason

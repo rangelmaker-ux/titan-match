@@ -474,7 +474,7 @@ class TitanMatchApp(tk.Tk):
 
     def _apply_license_state(self, st):
         self.license_state = st
-        self.lic_btn.configure(fg=GREEN if (st.valid and "ativa" in st.reason.lower() and "não" not in st.reason.lower())
+        self.lic_btn.configure(fg=GREEN if (st.valid and ("ativa" in st.reason.lower() or "ativo" in st.reason.lower()) and "não" not in st.reason.lower())
                                else (RED if not st.valid else TEXT_MUTED))
         if not st.valid:
             for b in (self.apply_btn,):
@@ -498,7 +498,7 @@ class TitanMatchApp(tk.Tk):
         box.master.pack_configure(padx=14, pady=14)
         st = licenca.status(online=False)
         tk.Label(box, text=("Situação: " + st.reason + (f"  ({st.nome})" if st.nome else "")), bg=BG_SURFACE,
-                 fg=GREEN if st.valid and "ativa" in st.reason else TEXT_MUTED, font=(FONT, 9)).pack(anchor="w")
+                 fg=GREEN if st.valid and ("ativa" in st.reason or "ativo" in st.reason) else TEXT_MUTED, font=(FONT, 9)).pack(anchor="w")
         var = tk.StringVar()
         e = ttk.Entry(box, textvariable=var, width=46, style="Titan.TEntry")
         e.pack(fill="x", pady=(8, 8))
@@ -809,7 +809,19 @@ class TitanMatchApp(tk.Tk):
                                        "done": "Titan.Done.Horizontal.TProgressbar",
                                        "error": "Titan.Error.Horizontal.TProgressbar"}[state])
 
+    def _license_ok(self) -> bool:
+        """Confere a licença na hora de usar (o teste grátis pode vencer com o plugin aberto)."""
+        from . import licenca
+
+        st = licenca.status(online=False)
+        if st.valid:
+            return True
+        self._apply_license_state(st)
+        return False
+
     def _generate(self):
+        if not self._license_ok():
+            return
         ref = self.ref_var.get().strip()
         if not Path(ref).is_file():
             messagebox.showerror("Titan Match", "Escolha uma imagem de referência válida.")
@@ -870,6 +882,8 @@ class TitanMatchApp(tk.Tk):
     def _apply(self):
         a = self.analysis
         if not a or self.item is None:
+            return
+        if not self._license_ok():
             return
         from .resolve_bridge import ApprovalRequired, check_block
 
