@@ -52,3 +52,24 @@ O texto de `erro` aparece para o cliente. Por isso precisa ser em português e c
 - Sem internet: continua funcionando por até 14 dias desde a última verificação bem-sucedida.
 - Ligar a exigência: em `licenca.py`, `ENFORCE_LICENSE = True`. Fazer isso **só depois** que o endpoint estiver
   respondendo, e publicar como uma atualização.
+
+## Download do instalador (R2)
+
+Os instaladores ficam no bucket **privado** `titan-match-instaladores`, que não tem acesso público:
+
+| Objeto | Conteúdo |
+|---|---|
+| `latest.json` | `{"versao", "windows": {"arquivo", "sha256", "bytes"}}`; depois entra também `mac_arm64` / `mac_x86_64` |
+| `windows/Titan-Match-Windows-<versão>.zip` | instalador Windows com o Python embutido |
+
+A loja entrega o arquivo só para quem comprou, igual ao `color-pacote`: uma Pages Function com o binding R2
+`TITAN_MATCH` → `titan-match-instaladores`. A function confere a compra e a chave, lê `latest.json` e devolve o
+arquivo por stream (`env.TITAN_MATCH.get(arquivo)`), ou então uma URL assinada de curta duração.
+
+Para publicar uma versão nova, use o wrangler logado na conta:
+```
+wrangler r2 object put titan-match-instaladores/windows/Titan-Match-Windows-X.Y.Z.zip --file dist/... --remote
+wrangler r2 object put titan-match-instaladores/latest.json --file latest.json --remote
+```
+As atualizações do plugin continuam no GitHub Releases (`Titan-Match-Update.zip`, pequeno). O R2 é só para o
+instalador completo.
