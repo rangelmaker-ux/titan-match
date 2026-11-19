@@ -177,6 +177,13 @@ def check_block(nodes: list[NodeInfo], labels: list[str] | None = None) -> Block
     return chk
 
 
+class SemExportFrame(ResolveError):
+    """A versão do Resolve não tem ExportFrame (API nova da 21.1.2)."""
+
+
+_STILLS = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".dpx", ".exr")
+
+
 class ResolveBridge:
     def __init__(self, resolve=None):
         self.resolve = resolve or connect()
@@ -221,9 +228,12 @@ class ResolveBridge:
     def _frame(self, obj, offset: int, max_dim: int) -> np.ndarray:
         import time
 
+        export = getattr(obj, "ExportFrame", None)
+        if not callable(export):  # a API devolve None para funções que a versão do Resolve não tem
+            raise SemExportFrame(f"ExportFrame não existe no DaVinci Resolve {self.versao()} (só na 21.1.2+).")
         res = None
         for attempt in range(3):  # medido: logo após trocar de timeline o Resolve responde "Failed to render frame"
-            res = obj.ExportFrame(int(offset), {"outputType": "encodedString", "encodedImageFormat": "png",
+            res = export(int(offset), {"outputType": "encodedString", "encodedImageFormat": "png",
                                                 "maxDimension": int(max_dim)})
             if res and res.get("success"):
                 return decode_image_bytes(base64.b64decode(res["data"]), max_dim)
@@ -243,12 +253,53 @@ class ResolveBridge:
         for offset in dict.fromkeys([start + int(item.GetDuration()) // 2, start, 0]):
             try:
                 return self._frame(mpi, offset, max_dim)
+            except SemExportFrame:
+                return self._frame_do_arquivo(mpi, start + int(item.GetDuration()) // 2, max_dim)
             except ResolveError as e:
                 last_err = e
         raise last_err
 
     def graded_frame(self, item, max_dim: int = 1024) -> np.ndarray:
-        return self._frame(item, int(item.GetDuration()) // 2, max_dim)
+        try:
+            return self._frame(item, int(item.GetDuration()) // 2, max_dim)
+        except SemExportFrame:  # ExportFrame também volta sem grade; o arquivo dá o mesmo frame
+            return self.source_frame(item, max_dim)
+
+    def versao(self) -> str:
+        try:
+            return str(self.resolve.GetVersionString())
+        except Exception:  # noqa: BLE001
+            return "?"
+
+    def _frame_do_arquivo(self, mpi, offset: int, max_dim: int) -> np.ndarray:
+        """Resolve sem ExportFrame (antes da 21.1.2): lê o frame original direto do arquivo de mídia."""
+        import cv2
+
+        path = str(mpi.GetClipProperty("File Path") or "")
+        dica = (f"Seu DaVinci Resolve ({self.versao()}) não exporta frames pela API (só a 21.1.2+). "
+                "Atualize o Resolve ou use 'Arquivo (offline)' com um print do frame.")
+        if not path or not os.path.isfile(path):
+            raise ResolveError(f"{dica}\n(arquivo do clipe não encontrado: {path or '?'})")
+        img = cv2.imread(path, cv2.IMREAD_COLOR) if path.lower().endswith(_STILLS) else None
+        if img is None:
+            cap = cv2.VideoCapture(path)
+            try:
+                total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+                if total > 0:
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, min(int(offset), total - 1)))
+                ok, img = cap.read()
+                if not ok:
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    ok, img = cap.read()
+                img = img if ok else None
+            finally:
+                cap.release()
+        if img is None:
+            raise ResolveError(f"{dica}\n(não consegui ler o vídeo: {os.path.basename(path)})")
+        ok, png = cv2.imencode(".png", img)
+        if not ok:
+            raise ResolveError(dica)
+        return decode_image_bytes(png.tobytes(), max_dim)
 
     # ------------------------------------------------------------ escrita (sempre com aprovação)
     def _install_luts(self, plan: GradePlan, lut_root: Path | None) -> None:

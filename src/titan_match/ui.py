@@ -711,6 +711,11 @@ class TitanMatchApp(tk.Tk):
 
         msg = f"{type(exc).__name__}: {exc}"
         get_logger().error("%s\n%s", msg, "".join(traceback.format_exception(exc)))
+        if isinstance(exc, TypeError) and "'NoneType' object is not callable" in str(exc):
+            # A API do Resolve devolve None para funções que a versão instalada não tem.
+            ver = self.bridge.versao() if getattr(self, "bridge", None) else "?"
+            msg = (f"Sua versão do DaVinci Resolve ({ver}) não tem uma função que o Titan Match usa. "
+                   "Atualize para o DaVinci Resolve Studio 21 ou mais novo.")
 
         def show(m=msg):
             if getattr(self, "_showing_error", False):
