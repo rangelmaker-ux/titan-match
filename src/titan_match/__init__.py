@@ -1,3 +1,3 @@
 """Titan Match — color matching por referência para DaVinci Resolve Studio (família Titan)."""
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 PRODUCT = "Titan Match"

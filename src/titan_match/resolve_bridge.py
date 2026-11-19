@@ -17,12 +17,15 @@ import base64
 import datetime as _dt
 import os
 import sys
+import tempfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
 
 from . import lut as lutmod
+from . import drx_layout
 from .cdl import CDL
 from .engine import decode_image_bytes, export_luts
 from .nodes import GradePlan
@@ -330,8 +333,12 @@ class ResolveBridge:
         return bool(g.SetNodeEnabled(idx, bool(enabled))) and ok
 
     def apply_as_new_version(self, item, plan: GradePlan, template_drx: str | Path, *, approved: bool,
-                             lut_root: Path | None = None, reference_display: np.ndarray | None = None) -> ApplyReport:
+                             lut_root: Path | None = None, reference_display: np.ndarray | None = None,
+                             animate: bool = True, on_frame=None) -> ApplyReport:
         """Cria versão local nova, aplica a árvore (.drx) só nela e preenche.
+
+        Com `animate`, a árvore aparece nó por nó (árvores parciais aplicadas em sequência)
+        antes da árvore completa; se algo falhar na animação, segue direto para a completa.
 
         A versão original do usuário não é alterada; 'restore' volta para ela.
         """
@@ -347,6 +354,8 @@ class ResolveBridge:
         if not item.LoadVersionByName(name, 0):
             raise ResolveError("LoadVersionByName falhou; a versão foi criada mas não carregada.")
         g = item.GetNodeGraph()
+        if animate:
+            self._animate_tree(g, template_drx, on_frame)
         if not g.ApplyGradeFromDRX(str(template_drx), 0):
             raise ResolveError("ApplyGradeFromDRX falhou na nova versão.")
         rep = self.fill_block(item, plan, approved=True, overwrite_titan=True, lut_root=lut_root,
@@ -355,6 +364,30 @@ class ResolveBridge:
         rep.version_created = name
         rep.original_version = original
         return rep
+
+    @staticmethod
+    def _animate_tree(g, template_drx: Path, on_frame=None, delay: float = 0.12) -> int:
+        """Mostra a árvore se montando nó por nó. Nunca impede a aplicação: devolve quantos quadros mostrou."""
+        try:
+            frames = drx_layout.quadros(template_drx.read_text(encoding="utf-8"))
+        except (OSError, ValueError, KeyError, IndexError, TypeError):
+            return 0
+        shown = 0
+        with tempfile.TemporaryDirectory(prefix="titan_arvore_") as tmp:
+            for i, xml in enumerate(frames):
+                f = Path(tmp) / f"quadro_{i:02d}.drx"
+                f.write_text(xml, encoding="utf-8", newline="")
+                try:
+                    ok = bool(g.ApplyGradeFromDRX(str(f), 0))
+                except Exception:  # noqa: BLE001 - animação é só visual
+                    ok = False
+                if not ok:
+                    break
+                shown += 1
+                if on_frame:
+                    on_frame(i + 1, len(frames) + 1)
+                time.sleep(delay)
+        return shown
 
     def restore(self, item, rep: ApplyReport, *, approved: bool) -> str:
         """Desfaz a última aplicação: volta à versão original ou neutraliza os nós Titan preenchidos."""

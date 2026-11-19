@@ -914,8 +914,15 @@ class TitanMatchApp(tk.Tk):
                                              overwrite_titan=bool(chk.titan_nodes_with_content),
                                              reference_display=a.reference_display)
             else:
+                def frame(i: int, n: int) -> None:
+                    self.progress["value"] = 50 + 40 * i // n
+                    self.status.set(f"Montando a árvore… nó {i} de {n}")
+                    self.update_idletasks()
+
                 rep = self.bridge.apply_as_new_version(self.item, a.plan, drx, approved=True,
-                                                       reference_display=a.reference_display)
+                                                       reference_display=a.reference_display,
+                                                       animate=bool(_load_config().get("animar_arvore", True)),
+                                                       on_frame=frame)
         except ApprovalRequired as e:
             self.progress["value"] = 0
             messagebox.showwarning("Titan Match", str(e))

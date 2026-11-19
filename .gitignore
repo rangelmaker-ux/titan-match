@@ -8,3 +8,4 @@ tools/_live/
 # Saída dos builds de instalador
 build/
 dist/
+templates/_originais/
