@@ -31,7 +31,7 @@ from .engine import decode_image_bytes, export_luts
 from .nodes import GradePlan
 from .templates import BASIC, ROLE_INFO, Template
 
-from .paths import resolve_scripting
+from .paths import lut_roots, resolve_scripting
 
 WIN_API, WIN_LIB = resolve_scripting()  # nomes mantidos por compatibilidade; valem para Windows e macOS
 
@@ -177,6 +177,32 @@ def check_block(nodes: list[NodeInfo], labels: list[str] | None = None) -> Block
     return chk
 
 
+# Funções da API que a aplicação usa, por objeto. Conferidas ANTES de escrever qualquer coisa:
+# em versões antigas do Resolve a API devolve None para o que não existe, e a falha viria no meio.
+API_APLICAR = {
+    "TimelineItem": ("GetNodeGraph", "SetCDL", "GetName"),
+    "Graph": ("GetNumNodes", "GetNodeLabel", "GetToolsInNode", "GetLUT", "SetLUT", "SetNodeLabel",
+              "SetNodeColor", "SetNodeEnabled"),
+    "Project": ("RefreshLUTList",),
+}
+# Além das de cima, para criar a versão nova com a árvore:
+API_NOVA_VERSAO = {
+    "TimelineItem": ("AddVersion", "LoadVersionByName", "GetCurrentVersion"),
+    "Graph": ("ApplyGradeFromDRX",),
+}
+
+
+def faltando(objs: dict, req: dict = API_APLICAR) -> list[str]:
+    """Nomes 'Objeto.Função' que esta versão do Resolve não tem."""
+    out = []
+    for kind, names in req.items():
+        obj = objs.get(kind)
+        if obj is None:
+            continue
+        out += [f"{kind}.{n}" for n in names if not callable(getattr(obj, n, None))]
+    return out
+
+
 class SemExportFrame(ResolveError):
     """A versão do Resolve não tem ExportFrame (API nova da 21.1.2)."""
 
@@ -187,6 +213,16 @@ _STILLS = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".dpx", ".exr")
 class ResolveBridge:
     def __init__(self, resolve=None):
         self.resolve = resolve or connect()
+        try:  # diagnóstico: versão do Resolve e do sistema vão para o log
+            import platform
+
+            from .log import get_logger
+
+            get_logger().info("resolve: versao=%s produto=%s sistema=%s %s python=%s", self.versao(),
+                              getattr(self.resolve, "GetProductName", lambda: "?")(), platform.system(),
+                              platform.machine(), platform.python_version())
+        except Exception:  # noqa: BLE001
+            pass
 
     # ------------------------------------------------------------ leitura
     @property
@@ -302,8 +338,22 @@ class ResolveBridge:
         return decode_image_bytes(png.tobytes(), max_dim)
 
     # ------------------------------------------------------------ escrita (sempre com aprovação)
+    def checar_api(self, item, nova_versao: bool = False) -> None:
+        """Erro claro (antes de qualquer escrita) se esta versão do Resolve não tem algo que a aplicação usa."""
+        g = item.GetNodeGraph() if callable(getattr(item, "GetNodeGraph", None)) else None
+        objs = {"TimelineItem": item, "Graph": g, "Project": self.project}
+        falta = faltando(objs) + (faltando(objs, API_NOVA_VERSAO) if nova_versao else [])
+        if falta:
+            raise ResolveError(f"Seu DaVinci Resolve ({self.versao()}) não tem funções que o Titan Match usa "
+                               f"({', '.join(falta)}). Atualize para o DaVinci Resolve Studio 21 ou mais novo.")
+
     def _install_luts(self, plan: GradePlan, lut_root: Path | None) -> None:
-        export_luts(plan.profile_key, lut_root or lutmod.default_lut_root())
+        root = lut_root or lutmod.default_lut_root()
+        try:
+            export_luts(plan.profile_key, root)
+        except OSError as e:
+            raise ResolveError(f"Não consegui gravar os LUTs do Titan Match em {root} ({e.strerror or e}). "
+                               "Dê permissão de escrita nessa pasta ou rode o Titan Match como administrador.") from e
         if not self.project.RefreshLUTList():
             raise ResolveError("Project.RefreshLUTList() falhou.")
 
@@ -317,6 +367,7 @@ class ResolveBridge:
         """Preenche os nós Titan (achados pelo label) com o plano."""
         if not approved:
             raise ApprovalRequired("Aplicação exige aprovação explícita do dry-run.")
+        self.checar_api(item)
         labels = [n.label for n in plan.nodes]
         before = self.inspect(item)
         chk = check_block(before, labels)
@@ -335,7 +386,8 @@ class ResolveBridge:
             if n.lut_path:
                 self._call(rep, f"SetLUT({idx})", g.SetLUT(idx, n.lut_path))
                 if not (g.GetLUT(idx) or ""):
-                    rep.errors.append(f"GetLUT({idx}) vazio após SetLUT — LUT não aplicado.")
+                    rep.errors.append(f"LUT do nó {idx} não aplicado: o Resolve não achou {Path(n.lut_path).name} "
+                                      f"(pastas de LUT: {', '.join(str(r) for r in lut_roots())}).")
             if n.cdl is not None and (ROLE_INFO[n.role][0] in ("cdl", "skin") or n.role == "haze"):
                 self._call(rep, f"SetCDL({idx})", item.SetCDL(n.cdl.to_resolve(idx)))
             enabled = bool(n.enabled)
@@ -395,6 +447,7 @@ class ResolveBridge:
         """
         if not approved:
             raise ApprovalRequired("Aplicação exige aprovação explícita do dry-run.")
+        self.checar_api(item, nova_versao=True)
         template_drx = Path(template_drx)
         if not template_drx.is_file():
             raise ResolveError(f"Template .drx não encontrado: {template_drx}")

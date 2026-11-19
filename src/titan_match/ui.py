@@ -88,11 +88,21 @@ def _save_config(**kw) -> None:
 
 
 def _to_photo(arr: np.ndarray):
-    from PIL import Image, ImageTk
+    """PhotoImage a partir de PNG em memória.
+
+    Não usa PIL.ImageTk: no Python portátil do Mac o Tk fica embutido no _tkinter e o
+    ImageTk falha com "bad argument type for built-in operation". O Tk 8.6 lê PNG sozinho.
+    """
+    import base64
+    import io
+
+    from PIL import Image
 
     im = Image.fromarray((np.clip(arr, 0, 1) * 255).astype(np.uint8))
     im.thumbnail((PREVIEW_W, PREVIEW_H))
-    return ImageTk.PhotoImage(im)
+    buf = io.BytesIO()
+    im.save(buf, "PNG")
+    return tk.PhotoImage(data=base64.b64encode(buf.getvalue()).decode("ascii"))
 
 
 def _set_app_id() -> None:
