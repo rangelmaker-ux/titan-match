@@ -3,7 +3,7 @@
 O <Body> da versão no .drx é: 1 byte (0x81) + um frame zstd com um protobuf do grafo.
 Campos usados (medidos no Resolve 21.1.2):
   grafo (campo 1 do topo):  7 = nó, 8 = ligação, 9 = entrada da fonte, 10 = saída
-  nó:       1 = id, 2 = número exibido, 4 = X, 5 = Y, 6 = label
+  nó:       1 = id, 2 = número exibido, 4 = X, 5 = Y (sint32 zigzag: ímpar = negativo), 6 = label
   ligação:  1 = id do nó de origem, 3 = id do nó de destino, 4 = entrada do destino
   saída:    3 -> 4 = id do nó ligado à saída
 
@@ -19,13 +19,13 @@ from dataclasses import dataclass
 
 ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
 COLS = 4          # nós por fileira na parte em série
-DX, DY = 300, 250  # passo entre nós (unidades do editor de nós)
-GAP = 150          # folga extra entre a grade em série e a camada em paralelo
-NODE_W, NODE_H = 264, 160  # tamanho de um nó (medido no Resolve 21, editor em 100%)
+DX, DY = 150, 125  # passo entre nós (unidades reais do editor de nós)
+GAP = 75          # folga extra entre a grade em série e a camada em paralelo
+NODE_W, NODE_H = 132, 80  # tamanho de um nó (medido no Resolve 21)
 # Centro da vista do editor de nós numa versão nova: o Resolve não enquadra a árvore
 # depois do ApplyGradeFromDRX, a vista fica neste ponto (na altura dos pontos de
 # entrada/saída). A árvore é centralizada aqui para caber sem rolar em telas pequenas.
-CENTRO = (1300, 575)
+CENTRO = (650, 288)
 
 
 # ------------------------------------------------------------------ protobuf mínimo
@@ -98,6 +98,19 @@ def _set(fields: list[list], f: int, value: int) -> None:
             e[2] = value
             return
     fields.append([f, 0, value])
+
+
+def zz_dec(v: int) -> int:
+    return (v >> 1) ^ -(v & 1)
+
+
+def zz_enc(v: int) -> int:
+    return (v << 1) ^ (v >> 63)
+
+
+def xy(no: list[list]) -> tuple[int, int]:
+    """Posição real (com sinal) de um nó."""
+    return zz_dec(_get(no, 4, 0)), zz_dec(_get(no, 5, 0))
 
 
 # ------------------------------------------------------------------ zstd
@@ -204,8 +217,8 @@ def ordem_e_posicoes(g: Grafo) -> tuple[list[int], dict[int, tuple[int, int]]]:
         if a in nos and b in nos:
             saidas[a].append((porta, b))
             entradas[b].append(a)
-    x0 = min(_get(n, 4, 0) for n in nos.values())
-    y0 = min(_get(n, 5, 0) for n in nos.values())
+    x0 = min(xy(n)[0] for n in nos.values())
+    y0 = min(xy(n)[1] for n in nos.values())
 
     comeco = g.entrada()
     if comeco not in nos:
@@ -274,8 +287,8 @@ def organizar(xml: str) -> str:
         if f == 7:
             n = parse(v)
             px, py = pos[_get(n, 1)]
-            _set(n, 4, px)
-            _set(n, 5, py)
+            _set(n, 4, zz_enc(px))
+            _set(n, 5, zz_enc(py))
             v = dump(n)
         novo.append([f, t, v])
     g.grafo = novo

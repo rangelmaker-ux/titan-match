@@ -12,6 +12,22 @@ def _labels(g):
     return {L._get(n, 1): (L._get(n, 6, b"") or b"").decode() for n in g.nos()}
 
 
+def test_zigzag():
+    for v in (0, 1, -1, 52, -97, 650, -1072):
+        assert L.zz_dec(L.zz_enc(v)) == v
+    assert L.zz_dec(193) == -97 and L.zz_dec(52) == 26
+
+
+def test_ordem_esquerda_para_direita_e_de_cima_para_baixo():
+    g, _ = L.ler((TPL / "TitanMatch_cinema.drx").read_text(encoding="utf-8"))
+    ordem, pos = L.ordem_e_posicoes(g)
+    lab = _labels(g)
+    by = {lab[k]: pos[k] for k in ordem}
+    assert by["01 - Input CST"][0] < by["NR - Ruido"][0] < by["03 - Exposure & Contraste"][0]
+    assert by["01 - Input CST"][1] < by["04 - Shadows (Lift)"][1] < by["08 - Saturacao"][1]
+    assert by["SKIN - Pele"][0] < by["GLOW"][0] < by["10 - Output CST"][0]
+
+
 def test_zstd_raw_roundtrip():
     data = bytes(range(256)) * 1200  # > 1 bloco
     assert L.zstd_read(L.zstd_raw(data)) == data
@@ -28,7 +44,7 @@ def test_protobuf_roundtrip_templates():
 def test_templates_em_fileiras_de_4(name):
     g, _ = L.ler((TPL / name).read_text(encoding="utf-8"))
     ordem, pos = L.ordem_e_posicoes(g)
-    nos = {L._get(n, 1): (L._get(n, 4), L._get(n, 5)) for n in g.nos()}
+    nos = {L._get(n, 1): L.xy(n) for n in g.nos()}
     assert nos == pos  # o arquivo já está organizado
     serie = ordem[: len(ordem) if name == "TitanMatch_Template.drx" else 11]
     linhas = {}
