@@ -25,6 +25,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from . import __version__
+from .net import ssl_context
 from .paths import app_root, user_data_dir
 
 REPO = "rangelmaker-ux/titan-match"
@@ -63,14 +64,7 @@ def allowed_url(url: str) -> str:
 
 
 def _ssl_context() -> ssl.SSLContext:
-    ctx = ssl.create_default_context()
-    try:
-        import certifi  # type: ignore
-
-        ctx.load_verify_locations(certifi.where())
-    except Exception:  # noqa: BLE001
-        pass
-    return ctx
+    return ssl_context()
 
 
 def _open(url: str, accept: str = "application/vnd.github+json"):

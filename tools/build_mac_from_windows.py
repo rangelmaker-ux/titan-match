@@ -64,7 +64,8 @@ def python_tarball(arch: str) -> Path:
 
 def wheels(arch: str) -> Path:
     plat = "arm64" if arch == "aarch64" else "x86_64"
-    target = CACHE / f"site-packages-{arch}"
+    req = hashlib.sha256((REPO / "requirements.txt").read_bytes()).hexdigest()[:8]
+    target = CACHE / f"site-packages-{arch}-{req}"
     if not target.exists():
         cmd = [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "-q", "--target", str(target),
                "--only-binary=:all:", "--python-version", "3.12", "--implementation", "cp", "--abi", "cp312",

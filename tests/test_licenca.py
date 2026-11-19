@@ -96,3 +96,24 @@ def test_store_402_ends_trial():
     licenca.activate("ABC", poster=loja(), now=0)
     st = licenca.status(poster=loja(code=402, erro="Seu teste grátis de 3 dias terminou."), now=licenca.VERIFY_EVERY + 1)
     assert not st.valid and "terminou" in st.reason
+
+
+def test_ssl_context_carrega_certificados():
+    from titan_match.net import ssl_context
+
+    ctx = ssl_context()
+    assert ctx.verify_mode.name == "CERT_REQUIRED" and ctx.cert_store_stats()["x509_ca"] > 0
+
+
+def test_erro_de_certificado_tem_mensagem_propria(monkeypatch, tmp_path):
+    import ssl
+    import urllib.error
+
+    from titan_match import licenca
+
+    def falha(*a, **k):
+        raise urllib.error.URLError(ssl.SSLCertVerificationError("CERTIFICATE_VERIFY_FAILED"))
+
+    monkeypatch.setattr(licenca.urllib.request, "urlopen", falha)
+    with pytest.raises(licenca.LicenseError, match="certificado"):
+        licenca.activate("TITAN-ABCD-1234")

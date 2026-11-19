@@ -24,6 +24,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import __version__
+from .net import ssl_context
 from .paths import IS_MAC, IS_WIN, user_data_dir
 
 SITE = "https://titan-loja.pages.dev"
@@ -116,7 +117,7 @@ def _post(rota: str, payload: dict, poster=None) -> tuple[int, dict]:
                                  headers={"Content-Type": "application/json; charset=utf-8",
                                           "User-Agent": f"Titan-Match/{__version__}"})
     try:
-        with urllib.request.urlopen(req, timeout=15) as r:
+        with urllib.request.urlopen(req, timeout=15, context=ssl_context()) as r:
             return r.status, json.loads(r.read(64 * 1024) or b"{}")
     except urllib.error.HTTPError as e:  # a loja responde {"erro": "..."} com 4xx
         try:
@@ -146,6 +147,10 @@ def activate(chave: str, poster=None, now: float | None = None) -> LicenseState:
     try:
         code, resp = _post("ativar", {"chave": chave, "produto": PRODUTO, "dispositivo": device_id()}, poster)
     except OSError as e:
+        detalhe = getattr(e, "reason", None) or e
+        if "CERTIFICATE" in str(detalhe).upper():
+            raise LicenseError("Não consegui validar a conexão segura com a Titan Loja (certificado). "
+                               "Atualize o Titan Match pelo instalador da loja.") from e
         raise LicenseError("Sem conexão com a Titan Loja. Confira a internet e tente de novo.") from e
     if code != 200 or not resp.get("ok"):
         raise LicenseError(resp.get("erro") or "Chave inválida.")

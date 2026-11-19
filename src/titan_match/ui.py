@@ -504,22 +504,47 @@ class TitanMatchApp(tk.Tk):
         e.pack(fill="x", pady=(8, 8))
         msg = tk.StringVar(value="" if licenca.ENFORCE_LICENSE else
                            "Durante o lançamento a licença ainda não é obrigatória.")
-        tk.Label(box, textvariable=msg, bg=BG_SURFACE, fg=TEXT_DIM, font=(FONT, 8), wraplength=360,
-                 justify="left").pack(anchor="w")
+        msg_lbl = tk.Label(box, textvariable=msg, bg=BG_SURFACE, fg=TEXT_MUTED, font=(FONT, 10), wraplength=360,
+                           justify="left")
+        msg_lbl.pack(anchor="w")
 
         def ativar():
-            try:
-                s = licenca.activate(var.get())
-            except Exception as ex:  # noqa: BLE001
-                msg.set(str(ex))
-                return
-            msg.set(s.reason)
-            self._apply_license_state(s)
-            self.after(800, win.destroy)
+            # Rede fora da thread da interface: a janela não congela e mostra o andamento.
+            chave = var.get()
+            btn.configure(state="disabled")
+            msg_lbl.configure(fg=TEXT_MUTED)
+            msg.set("Ativando… conectando à Titan Loja.")
+
+            def work():
+                try:
+                    s, erro = licenca.activate(chave), None
+                except Exception as ex:  # noqa: BLE001
+                    s, erro = None, ex
+                    get_logger().warning("ativar licença falhou: %r", ex, exc_info=not isinstance(ex, licenca.LicenseError))
+                self.after(0, lambda: fim(s, erro))
+
+            def fim(s, erro):
+                try:
+                    btn.configure(state="normal")
+                    if erro is not None:
+                        msg_lbl.configure(fg=AMBER)
+                        msg.set(str(erro) or erro.__class__.__name__)
+                        return
+                    get_logger().info("ativar licença: %s", s.reason)
+                    msg_lbl.configure(fg=GREEN)
+                    msg.set(s.reason)
+                    self._apply_license_state(s)
+                    self.after(1200, win.destroy)
+                except tk.TclError:  # janela fechada no meio
+                    pass
+
+            threading.Thread(target=work, daemon=True).start()
 
         row = tk.Frame(box, bg=BG_SURFACE)
         row.pack(fill="x", pady=(10, 0))
-        TitanButton(row, "Ativar", ativar, kind="primary").pack(side="left")
+        btn = TitanButton(row, "Ativar", ativar, kind="primary")
+        btn.pack(side="left")
+        e.bind("<Return>", lambda ev: btn.cget("state") == "normal" and ativar())
         TitanButton(row, "Fechar", win.destroy).pack(side="left", padx=8)
         e.focus_set()
         self.after(100, lambda: self._dark_title_bar(win))
