@@ -19,8 +19,13 @@ from dataclasses import dataclass
 
 ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
 COLS = 4          # nós por fileira na parte em série
-DX, DY = 300, 230  # passo entre nós (unidades do editor de nós)
+DX, DY = 300, 250  # passo entre nós (unidades do editor de nós)
 GAP = 150          # folga extra entre a grade em série e a camada em paralelo
+NODE_W, NODE_H = 264, 160  # tamanho de um nó (medido no Resolve 21, editor em 100%)
+# Centro da vista do editor de nós numa versão nova: o Resolve não enquadra a árvore
+# depois do ApplyGradeFromDRX, a vista fica neste ponto (na altura dos pontos de
+# entrada/saída). A árvore é centralizada aqui para caber sem rolar em telas pequenas.
+CENTRO = (1300, 575)
 
 
 # ------------------------------------------------------------------ protobuf mínimo
@@ -249,7 +254,16 @@ def ordem_e_posicoes(g: Grafo) -> tuple[list[int], dict[int, tuple[int, int]]]:
     for j, k in enumerate(resto):
         pos[k] = (x0 + j * DX, y0 + (linhas + 1) * DY)
         ordem.append(k)
-    return ordem, pos
+    return ordem, _centralizar(pos)
+
+
+def _centralizar(pos: dict[int, tuple[int, int]]) -> dict[int, tuple[int, int]]:
+    xs = [p[0] for p in pos.values()]
+    ys = [p[1] for p in pos.values()]
+    cx = (min(xs) + max(xs) + NODE_W) // 2
+    cy = (min(ys) + max(ys) + NODE_H) // 2
+    dx, dy = CENTRO[0] - cx, CENTRO[1] - cy
+    return {k: (x + dx, y + dy) for k, (x, y) in pos.items()}
 
 
 def organizar(xml: str) -> str:
