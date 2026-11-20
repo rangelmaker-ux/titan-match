@@ -181,10 +181,12 @@ def check_block(nodes: list[NodeInfo], labels: list[str] | None = None) -> Block
 # em versões antigas do Resolve a API devolve None para o que não existe, e a falha viria no meio.
 API_APLICAR = {
     "TimelineItem": ("GetNodeGraph", "SetCDL", "GetName"),
-    "Graph": ("GetNumNodes", "GetNodeLabel", "GetToolsInNode", "GetLUT", "SetLUT", "SetNodeLabel",
-              "SetNodeColor", "SetNodeEnabled"),
+    "Graph": ("GetNumNodes", "GetNodeLabel", "GetToolsInNode", "GetLUT", "SetLUT", "SetNodeEnabled"),
     "Project": ("RefreshLUTList",),
 }
+# SetNodeLabel / SetNodeColor só existem a partir da 21.1.2 e são opcionais: os nós Titan já são achados
+# pelo rótulo que vem no template .drx; sem elas o rótulo e a cor ficam como estão no template.
+API_OPCIONAL = {"Graph": ("SetNodeLabel", "SetNodeColor")}
 # Além das de cima, para criar a versão nova com a árvore:
 API_NOVA_VERSAO = {
     "TimelineItem": ("AddVersion", "LoadVersionByName", "GetCurrentVersion"),
@@ -379,10 +381,14 @@ class ResolveBridge:
         rep = ApplyReport("fill_block", item.GetName(), dict(chk.index_of), labels=labels)
         self._install_luts(plan, lut_root)
         g = item.GetNodeGraph()
+        set_label = getattr(g, "SetNodeLabel", None)
+        set_color = getattr(g, "SetNodeColor", None)
         for n in plan.nodes:
             idx = chk.index_of[_norm(n.label)]
-            self._call(rep, f"SetNodeLabel({idx})", g.SetNodeLabel(idx, n.label))
-            self._call(rep, f"SetNodeColor({idx})", g.SetNodeColor(idx, ROLE_INFO[n.role][1]))
+            if callable(set_label):
+                self._call(rep, f"SetNodeLabel({idx})", set_label(idx, n.label))
+            if callable(set_color):
+                self._call(rep, f"SetNodeColor({idx})", set_color(idx, ROLE_INFO[n.role][1]))
             if n.lut_path:
                 self._call(rep, f"SetLUT({idx})", g.SetLUT(idx, n.lut_path))
                 if not (g.GetLUT(idx) or ""):
@@ -528,6 +534,10 @@ class ResolveBridge:
         if busy:
             raise ResolveError(f"Os nós {busy} têm LUT; use nós novos.")
         g = item.GetNodeGraph()
+        falta = faltando({"Graph": g}, API_OPCIONAL)
+        if falta:
+            raise ResolveError(f"Criar template precisa de {', '.join(falta)} (DaVinci Resolve 21.1.2 ou mais novo; "
+                               f"o seu é {self.versao()}).")
         n_mix_tpl = sum(tn.kind == "struct" for tn in template.nodes)
         n_mix = sum(any("Mixer" in t for t in (n.tools or [])) for n in nodes)
         if n_mix != n_mix_tpl:

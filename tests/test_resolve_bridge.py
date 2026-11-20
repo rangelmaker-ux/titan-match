@@ -207,3 +207,21 @@ def test_skin_node_turns_on_directly_when_key_already_exists(tmp_path):
                                                       lut_root=tmp_path)
     skin = next(n for n in item.graph.nodes if n.label == "SKIN - Pele")
     assert not rep.skin_pending and skin.enabled is True
+
+
+class Graph21_0(FakeGraph):
+    """Resolve 21.0.x: SetNodeLabel / SetNodeColor só chegaram na 21.1.2 (o fusionscript devolve None)."""
+    SetNodeLabel = None
+    SetNodeColor = None
+
+
+def test_resolve_21_0_sem_rotulo_e_cor_aplica_mesmo_assim(tmp_path, plan_and_ref):
+    plan, ref = plan_and_ref
+    item = FakeItem(user_nodes() + titan_block(), ref)
+    item.graph = Graph21_0(item.graph.nodes)
+    br = ResolveBridge(FakeResolve(item))
+    br.checar_api(item)  # não pode bloquear: rótulo e cor são opcionais
+    rep = br.fill_block(item, plan, approved=True, lut_root=tmp_path)
+    assert rep.ok, rep.errors
+    assert not any(k in ("label", "color") for k, _ in item.graph.writes)
+    assert len(item.cdl_calls) == 7 and item.graph.nodes[2].lut.endswith(".cube")
