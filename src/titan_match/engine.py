@@ -129,14 +129,24 @@ def fold_missing(core: dict, roles: list[str], src_w: np.ndarray) -> dict:
     return out
 
 
+DEFAULT_TEMPLATE = "starter"
+
+
 def choose_template(templates: dict[str, Template], requested: str, wants: dict[str, bool]) -> tuple[Template, str]:
-    """Escolhe a árvore. 'auto': a mais completa que cobre o que a análise pediu, entre as que têm .drx."""
+    """Escolhe a árvore.
+
+    'auto': a Starter (padrão escolhido pelo usuário em 19/11/2026), se o .drx dela estiver
+    instalado; sem ela, a mais completa que cobre o que a análise pediu, entre as que têm .drx.
+    """
     if requested != "auto":
         if requested not in templates:
             raise ValueError(f"Template desconhecido: {requested}")
         return templates[requested], "escolhido pelo usuário"
     needed = [r for r, on in wants.items() if on]
     usable = [t for t in templates.values() if t.drx is not None] or list(templates.values())
+    padrao = templates.get(DEFAULT_TEMPLATE)
+    if padrao is not None and padrao.drx is not None:
+        return padrao, "árvore padrão (Starter)"
     covering = [t for t in usable if all(r in t.roles() for r in needed)]
     if needed and covering:
         best = min(covering, key=lambda t: len(t.nodes))
@@ -270,7 +280,8 @@ def analyze(
             "SKIN, abra o Magic Mask, clique no rosto e aperte Ativar pele no Titan Match.")
     for r, want in wants.items():
         if want and not plan.has(r):
-            plan.warnings.append(f"A análise pediu o nó '{r}', mas a árvore escolhida não tem esse nó.")
+            plan.warnings.append(f"A análise pediu o nó '{r}', mas a árvore escolhida não tem esse nó "
+                                 "(a árvore Cinema tem).")
 
     # 5) Conferência simulada: histograma final vs referência (só nós que o plano liga).
     out_w = src_w.copy()

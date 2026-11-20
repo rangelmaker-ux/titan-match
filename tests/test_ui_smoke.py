@@ -46,7 +46,7 @@ def test_ui_generates_dry_run_offline(tmp_path):
         app._show(analyze(ref, log, "sony_slog3"))
         app.update()
         txt = app.text.get("1.0", "end")
-        assert "01 - Input CST" in txt and "10 - Output CST" in txt and "DRY-RUN" in txt
+        assert "CST in" in txt and "CST out" in txt and "DRY-RUN" in txt  # árvore padrão: Starter
         assert str(app.apply_btn["state"]) == "disabled"  # modo offline nunca habilita escrita
         assert len(app._photos) == 3
     finally:

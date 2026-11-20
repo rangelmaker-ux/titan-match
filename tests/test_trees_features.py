@@ -176,3 +176,11 @@ def test_toggle_nodes_have_measured_reason():
     for role in ("nr", "glow", "halation", "grain"):
         n = plan.node(role)
         assert n.provenance and n.provenance[0].formula, role
+
+
+def test_auto_usa_a_starter_quando_instalada():
+    ts = _with_drx("basico", "cinema", "starter")
+    t, why = choose_template(ts, "auto", {"skin": True, "nr": False, "glow": True, "halation": False, "grain": False})
+    assert t.key == "starter" and "padrão" in why
+    t, _ = choose_template(ts, "cinema", {"skin": True})
+    assert t.key == "cinema"  # escolher no menu continua valendo
