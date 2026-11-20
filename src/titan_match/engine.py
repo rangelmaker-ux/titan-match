@@ -11,7 +11,7 @@ import numpy as np
 
 from . import features
 from . import profiles as pf
-from .cdl import CDL, apply_cdl, apply_cdl_masked
+from .cdl import CDL, apply_cdl, apply_cdl_masked, fit_cdl
 from .lut import LUT_SUBFOLDER, build_cst_luts
 from .mapping import map_skin
 from .matching import MatchOptions, get_matcher
@@ -78,6 +78,55 @@ def lut_relative_paths(profile_key: str) -> dict[str, str]:
         "input_cst": f"{LUT_SUBFOLDER}/TitanMatch_Input_{profile_key}_to_DWG-DI.cube",
         "output_cst": f"{LUT_SUBFOLDER}/TitanMatch_Output_DWG-DI_to_Rec709-G24.cube",
     }
+
+
+def fold_missing(core: dict, roles: list[str], src_w: np.ndarray) -> dict:
+    """Correções sem nó na árvore escolhida vão para o nó anterior da cadeia (ou o seguinte).
+
+    Ex.: na Starter não há Shadows/Midtones/Highlights/Color Balance: elas são combinadas com
+    Exposure & Contraste num único CDL ajustado à curva composta, medida nos valores reais da
+    imagem (as correções combinadas são curvas por canal; só a saturação mexe em saturação e
+    ela tem nó próprio). Devolve {role: NodeCorrection} só para os nós que mudaram.
+    """
+    from .nodes import NodeCorrection
+
+    chain = [r for r in CHAIN_ORDER if r != "skin" and r in core]
+    present = [r for r in chain if r in roles]
+    missing = [r for r in chain if r not in roles and core[r].enabled and not core[r].cdl.is_identity()
+               and abs(core[r].cdl.saturation - 1.0) < 1e-9]
+    if not present or not missing:
+        return {}
+    groups: dict[str, list[str]] = {}
+    for r in missing:
+        before = [p for p in present if chain.index(p) < chain.index(r)]
+        target = before[-1] if before else present[0]
+        groups.setdefault(target, []).append(r)
+    out = {}
+    pix = src_w.reshape(-1, 3)
+    for target, extra in groups.items():
+        members = sorted([target] + extra, key=chain.index)
+        tc = core[target]
+        # Entrada real do nó: a imagem depois dos nós presentes que vêm antes dele.
+        x = pix
+        for r in present[:present.index(target)]:
+            if core[r].enabled:
+                x = apply_cdl(x, core[r].cdl)
+        q = np.linspace(0, 1, 257)
+        xs = np.concatenate([np.quantile(x, q, axis=0), np.stack([q] * 3, axis=1)])
+        ys = xs
+        for r in members:
+            if r == target and not tc.enabled:
+                continue
+            ys = apply_cdl(ys, CDL(core[r].cdl.slope, core[r].cdl.offset, core[r].cdl.power))
+        fit, err = fit_cdl(xs, ys)
+        fit.saturation = tc.cdl.saturation if tc.enabled else 1.0
+        nomes = ", ".join(extra)
+        prov = list(tc.provenance) + [Provenance(
+            "CDL combinado", f"ajuste de curva de {' → '.join(members)} (a árvore não tem nó para {nomes})",
+            {"erro_max": round(err, 4)}, note="Mínimos quadrados por canal nos valores reais da imagem.")]
+        out[target] = NodeCorrection(target, fit, prov, True,
+                                     list(tc.notes) + [f"Inclui {nomes} (esta árvore não tem nó para eles)."])
+    return out
 
 
 def choose_template(templates: dict[str, Template], requested: str, wants: dict[str, bool]) -> tuple[Template, str]:
@@ -168,11 +217,12 @@ def analyze(
     tpl, reason = choose_template(templates, options.template, wants)
 
     # 4) Plano de nós na ordem do template.
+    core.update(fold_missing(core, tpl.roles(), src_w))
     luts = lut_relative_paths(profile_key)
     nodes: list[NodeSpec] = []
     for i, tn in enumerate(tpl.nodes, start=1):
-        if tn.kind in ("struct", "keysrc"):
-            continue  # mixer / fonte de chave: estrutura do grafo, nada a calcular ou escrever
+        if tn.kind in ("struct", "keysrc", "free"):
+            continue  # mixer / fonte de chave / nó livre do colorista: nada a calcular ou escrever
         if tn.kind == "lut_in":
             nodes.append(NodeSpec(i, tn.role, tn.label, tn.color, cdl=None, lut_path=luts["input_cst"], provenance=[
                 Provenance("LUT de CST", "curva log + matriz de gamut do profile -> DWG/DI",

@@ -13,6 +13,7 @@ Funções (roles):
   skin              -> CDL calculado, aplicado só na chave de pele do nó
   toggle            -> efeito pré-configurado no template (NR, glow, halation,
                        grain, look): o plugin só liga/desliga pela análise
+  free              -> nó livre para o colorista: o plugin nunca escreve nele
 """
 from __future__ import annotations
 
@@ -44,7 +45,11 @@ ROLE_INFO: dict[str, tuple[str, str]] = {
     # Nó estrutural (Parallel/Layer Mixer): ocupa um índice no grafo (medido no Resolve 21.1.2),
     # mas não tem label nem correção; o plugin nunca escreve nele.
     "mixer": ("struct", ""),
+    # Nó vazio de propósito (Starter: objetos, ADJ, power windows, look, sharpening): fica para o colorista.
+    "free": ("free", ""),
 }
+# Roles que podem se repetir numa árvore (não têm correção própria).
+REPEATABLE = {"mixer", "free"}
 # Ordem de processamento (simulação) dos nós que alteram cor de forma calculada.
 CHAIN_ORDER = ["white_balance", "exposure_contrast", "shadows", "midtones", "highlights",
                "color_balance", "saturation", "skin"]
@@ -84,7 +89,7 @@ class Template:
         return next((n for n in self.nodes if n.role == role), None)
 
     def validate(self) -> None:
-        roles = [r for r in self.roles() if r != "mixer"]
+        roles = [r for r in self.roles() if r not in REPEATABLE]
         for r in self.roles():
             if r not in ROLE_INFO:
                 raise ValueError(f"{self.key}: role desconhecida {r!r}")
@@ -125,7 +130,21 @@ CINEMA = Template(
     topology="01→NR→02→…→08→HAZE→SKIN→[GLOW ∥ HALATION ∥ GRAIN]→mixer→10 (16 índices)",
 )
 
-BUILTIN = {t.key: t for t in (BASIC, CINEMA)}
+STARTER = Template(
+    "starter", "Starter (20 nós, espaço para o colorista)",
+    [TemplateNode(l, r) for r, l in [
+        ("input_cst", "CST in"), ("white_balance", "Exp/bal"), ("exposure_contrast", "Contrast"),
+        ("saturation", "Sat"), ("free", "background"), ("free", "2nd obj"), ("free", "Main obj"), ("mixer", ""),
+        ("free", "Global"), ("free", "ADJ 1"), ("free", "ADJ 2"), ("free", "ADJ 3"), ("free", "PW 1"),
+        ("free", "PW 2"), ("free", "PW 3"), ("mixer", ""), ("free", "Final look"), ("free", "Fine Tune"),
+        ("output_cst", "CST out"), ("free", "Sharpening")]],
+    description="O match vai em Exp/bal, Contrast e Sat (sombras, médios, altas e color balance combinados "
+                "no Contrast); objetos, ajustes, power windows, look, fine tune e sharpening ficam vazios.",
+    topology="CST in→Exp/bal→Contrast→Sat→[background ∥ 2nd obj ∥ Main obj]→mixer→Global→"
+             "[ADJ 1-3 ∥ PW 1-3]→mixer→Final look→Fine Tune→CST out→Sharpening (20 índices)",
+)
+
+BUILTIN = {t.key: t for t in (BASIC, CINEMA, STARTER)}
 
 
 def _from_manifest(path: Path) -> Template:

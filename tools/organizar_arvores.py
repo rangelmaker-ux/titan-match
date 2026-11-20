@@ -17,7 +17,9 @@ from titan_match import drx_layout  # noqa: E402
 
 
 def main(argv: list[str]) -> int:
-    files = [Path(a) for a in argv] or sorted((ROOT / "templates").glob("*.drx"))
+    # A Starter tem layout próprio em duas faixas (tools/criar_starter.py): não reorganizar.
+    files = [Path(a) for a in argv] or sorted(p for p in (ROOT / "templates").glob("*.drx")
+                                              if p.name != "TitanMatch_starter.drx")
     bak = ROOT / "templates" / "_originais"
     for p in files:
         xml = p.read_text(encoding="utf-8")
