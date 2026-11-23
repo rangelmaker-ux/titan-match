@@ -18,7 +18,9 @@ def format_dry_run(plan: GradePlan) -> str:
     for n in plan.nodes:
         state = "" if n.enabled else "  [DESABILITADO]"
         lines.append(f"[{n.label}]{state}")
-        if n.lut_path:
+        if n.native_cst:
+            lines.append(f"    {n.native_cst}")
+        elif n.lut_path:
             lines.append(f"    LUT: {n.lut_path}")
         if n.cdl is not None:
             d = n.cdl.as_dict()

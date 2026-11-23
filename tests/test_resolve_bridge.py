@@ -225,3 +225,19 @@ def test_resolve_21_0_sem_rotulo_e_cor_aplica_mesmo_assim(tmp_path, plan_and_ref
     assert rep.ok, rep.errors
     assert not any(k in ("label", "color") for k, _ in item.graph.writes)
     assert len(item.cdl_calls) == 7 and item.graph.nodes[2].lut.endswith(".cube")
+
+
+def test_cst_nativo_nao_recebe_lut(tmp_path, plan_and_ref):
+    plan, ref = plan_and_ref
+    for n in plan.nodes:
+        if n.role in ("input_cst", "output_cst"):
+            n.native_cst = "Color Space Transform"
+    item = FakeItem(user_nodes() + titan_block(), ref)
+    rep = ResolveBridge(FakeResolve(item)).fill_block(item, plan, approved=True, lut_root=tmp_path,
+                                                      cst_no_drx=True)
+    assert rep.ok, rep.errors
+    assert not any(k == "lut" for k, _ in item.graph.writes)
+    # Árvore que já estava no clipe, sem CST no nó: cai no LUT de reserva.
+    item2 = FakeItem(user_nodes() + titan_block(), ref)
+    ResolveBridge(FakeResolve(item2)).fill_block(item2, plan, approved=True, lut_root=tmp_path)
+    assert sum(k == "lut" for k, _ in item2.graph.writes) == 2

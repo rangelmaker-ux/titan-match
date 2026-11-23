@@ -25,7 +25,7 @@ from pathlib import Path
 import numpy as np
 
 from . import lut as lutmod
-from . import drx_layout
+from . import cst_ofx, drx_layout
 from .cdl import CDL
 from .engine import decode_image_bytes, export_luts
 from .nodes import GradePlan
@@ -205,6 +205,10 @@ def faltando(objs: dict, req: dict = API_APLICAR) -> list[str]:
     return out
 
 
+def _tem_cst(tools) -> bool:
+    return any("color space" in str(t).casefold() for t in (tools or []))
+
+
 class SemExportFrame(ResolveError):
     """A versão do Resolve não tem ExportFrame (API nova da 21.1.2)."""
 
@@ -365,8 +369,14 @@ class ResolveBridge:
                 for n in nodes if n.index not in titan]
 
     def fill_block(self, item, plan: GradePlan, *, approved: bool, overwrite_titan: bool = False,
-                   lut_root: Path | None = None, reference_display: np.ndarray | None = None) -> ApplyReport:
-        """Preenche os nós Titan (achados pelo label) com o plano."""
+                   lut_root: Path | None = None, reference_display: np.ndarray | None = None,
+                   cst_no_drx: bool = False) -> ApplyReport:
+        """Preenche os nós Titan (achados pelo label) com o plano.
+
+        cst_no_drx: os nós de CST acabaram de vir do .drx com o Color Space Transform nativo da câmera
+        (versão nova); aí não recebem LUT. Na árvore que já estava no clipe, o CST nativo só é mantido
+        se o nó já tiver um Color Space Transform; senão o nó recebe o LUT de CST (reserva).
+        """
         if not approved:
             raise ApprovalRequired("Aplicação exige aprovação explícita do dry-run.")
         self.checar_api(item)
@@ -389,7 +399,8 @@ class ResolveBridge:
                 self._call(rep, f"SetNodeLabel({idx})", set_label(idx, n.label))
             if callable(set_color):
                 self._call(rep, f"SetNodeColor({idx})", set_color(idx, ROLE_INFO[n.role][1]))
-            if n.lut_path:
+            usar_cst = bool(n.native_cst) and (cst_no_drx or _tem_cst(g.GetToolsInNode(idx)))
+            if n.lut_path and not usar_cst:
                 self._call(rep, f"SetLUT({idx})", g.SetLUT(idx, n.lut_path))
                 if not (g.GetLUT(idx) or ""):
                     rep.errors.append(f"LUT do nó {idx} não aplicado: o Resolve não achou {Path(n.lut_path).name} "
@@ -464,16 +475,30 @@ class ResolveBridge:
         if not item.LoadVersionByName(name, 0):
             raise ResolveError("LoadVersionByName falhou; a versão foi criada mas não carregada.")
         g = item.GetNodeGraph()
-        if animate:
-            self._animate_tree(g, template_drx, on_frame)
-        if not g.ApplyGradeFromDRX(str(template_drx), 0):
-            raise ResolveError("ApplyGradeFromDRX falhou na nova versão.")
+        with tempfile.TemporaryDirectory(prefix="titan_cst_") as tmp:
+            drx, nativo = self._drx_com_cst(template_drx, plan, Path(tmp))
+            if animate:
+                self._animate_tree(g, drx, on_frame)
+            if not g.ApplyGradeFromDRX(str(drx), 0):
+                raise ResolveError("ApplyGradeFromDRX falhou na nova versão.")
         rep = self.fill_block(item, plan, approved=True, overwrite_titan=True, lut_root=lut_root,
-                              reference_display=reference_display)
+                              reference_display=reference_display, cst_no_drx=nativo)
         rep.mode = "new_version"
         rep.version_created = name
         rep.original_version = original
         return rep
+
+    @staticmethod
+    def _drx_com_cst(template_drx: Path, plan: GradePlan, tmp: Path) -> tuple[Path, bool]:
+        """Cópia do template com o Color Space Transform nativo da câmera nos nós de CST."""
+        ins = {n.label for n in plan.nodes if n.role == "input_cst" and n.native_cst}
+        outs = {n.label for n in plan.nodes if n.role == "output_cst" and n.native_cst}
+        if not ins:
+            return template_drx, False
+        xml = cst_ofx.aplicar_no_drx(template_drx.read_text(encoding="utf-8"), plan.profile_key, ins, outs)
+        out = tmp / template_drx.name
+        out.write_text(xml, encoding="utf-8", newline="")
+        return out, True
 
     @staticmethod
     def _animate_tree(g, template_drx: Path, on_frame=None, delay: float = 0.12) -> int:

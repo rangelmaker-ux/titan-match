@@ -83,33 +83,42 @@ def apply_chain(rgb: np.ndarray, cdls: list[CDL]) -> np.ndarray:
     return rgb
 
 
-def fit_cdl(xs: np.ndarray, ys: np.ndarray) -> tuple[CDL, float]:
-    """Um CDL (slope/offset/power por canal, sem saturação) que aproxima a curva xs→ys.
+def fit_cdl(xs: np.ndarray, ys: np.ndarray, spread: float = 0.15) -> tuple[CDL, float]:
+    """Um CDL (slope/offset/power, sem saturação) que aproxima a curva xs→ys, canal a canal.
 
-    xs, ys: (N, 3), um canal por coluna. Para cada canal: busca em grade do power e, para cada
-    power, mínimos quadrados de slope/offset em ys^(1/power) = xs·slope + offset; fica o de menor
-    erro no espaço de saída. Devolve o CDL e o erro máximo (0..1).
+    xs, ys: (N, 3). Primeiro acha um power comum aos três canais (o tom); depois cada canal pode
+    afastar o power até ±`spread` desse valor. Sem esse limite, cada canal cai num power bem
+    diferente e o resultado ganha dominante de cor nas sombras/altas. Para cada power, mínimos
+    quadrados de slope/offset em ys^(1/power) = xs·slope + offset, só onde a curva não bateu no
+    clamp; vence o menor erro RMS no espaço de saída. Devolve o CDL e o erro máximo (0..1).
     """
     xs, ys = np.asarray(xs, np.float64), np.clip(np.asarray(ys, np.float64), 0.0, 1.0)
-    slope, offset, power, worst = [], [], [], 0.0
-    for c in range(3):
+
+    def canal(c: int, p: float) -> tuple[float, float, float]:
         x, y = xs[:, c], ys[:, c]
-        # A reta só vale onde a curva não bateu no limite (o clamp do CDL achata 0 e 1).
         livre = (y > 1e-4) & (y < 1 - 1e-4)
         if livre.sum() < 8:
             livre = np.ones_like(y, bool)
-        best = (np.inf, 1.0, 0.0, 1.0)
-        for grid in (np.geomspace(0.25, 4.0, 121), None):
-            if grid is None:  # refino em volta do melhor
-                grid = best[3] * np.geomspace(0.94, 1.06, 41)
-            for p in grid:
-                a = np.stack([x[livre], np.ones(livre.sum())], axis=1)
-                s, o = np.linalg.lstsq(a, y[livre] ** (1.0 / p), rcond=None)[0]
-                err = np.abs(np.clip(x * s + o, 0.0, 1.0) ** p - y)
-                e = float(np.sqrt(np.mean(err ** 2)))
-                if e < best[0]:
-                    best = (e, float(s), float(o), float(p))
-        _, s, o, p = best
-        slope.append(s), offset.append(o), power.append(p)
-        worst = max(worst, float(np.max(np.abs(np.clip(x * s + o, 0.0, 1.0) ** p - y))))
-    return CDL(tuple(slope), tuple(offset), tuple(power)), worst
+        a = np.stack([x[livre], np.ones(int(livre.sum()))], axis=1)
+        s_, o_ = np.linalg.lstsq(a, y[livre] ** (1.0 / p), rcond=None)[0]
+        e = float(np.mean((np.clip(x * s_ + o_, 0.0, 1.0) ** p - y) ** 2))
+        return e, float(s_), float(o_)
+
+    comum = (np.inf, 1.0)
+    for grid in (np.geomspace(0.4, 2.5, 85), None):
+        if grid is None:
+            grid = comum[1] * np.geomspace(0.95, 1.05, 31)
+        for p in grid:
+            e = sum(canal(c, float(p))[0] for c in range(3))
+            if e < comum[0]:
+                comum = (e, float(p))
+    p0 = comum[1]
+    slope, offset, power = [], [], []
+    for c in range(3):
+        best = min(((canal(c, float(p)), float(p)) for p in p0 * np.geomspace(1 - spread, 1 + spread, 41)),
+                   key=lambda r: r[0][0])
+        (_, s_, o_), p = best
+        slope.append(s_), offset.append(o_), power.append(p)
+    fit = CDL(tuple(slope), tuple(offset), tuple(power))
+    worst = float(np.max(np.abs(apply_cdl(xs, fit) - ys)))
+    return fit, worst

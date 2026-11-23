@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import features
+from . import cst_ofx, features
 from . import profiles as pf
 from .cdl import CDL, apply_cdl, apply_cdl_masked, fit_cdl
 from .lut import LUT_SUBFOLDER, build_cst_luts
@@ -51,6 +51,44 @@ def load_image(path: str | Path, max_dim: int = MAX_ANALYSIS_DIM) -> np.ndarray:
             im.thumbnail((max_dim, max_dim))
         arr = np.asarray(im, dtype=np.float64) / 255.0
     return arr
+
+
+def trim_frame(img: np.ndarray, tol: float = 0.02, inset: float = 0.03) -> np.ndarray:
+    """Tira moldura de print de tela: bordas brancas/pretas uniformes (print, letterbox) e cantos arredondados.
+
+    Só sai linha/coluna de borda quase constante E quase branca ou quase preta, e só se isso
+    acontece em pelo menos dois lados (print: quatro; letterbox: dois). Depois um recuo de `inset`
+    do lado menor tira os cantos arredondados. Sem moldura, a imagem volta igual.
+    """
+    img = np.asarray(img)
+    h, w = img.shape[:2]
+    if h < 40 or w < 40:
+        return img
+
+    def flat(v: np.ndarray) -> bool:
+        v = v.reshape(-1, v.shape[-1])
+        if float(v.std(axis=0).max()) >= tol:
+            return False
+        m = v.mean(axis=0)
+        return bool(m.min() > 0.92 or m.max() < 0.06)
+
+    t, b, l, r = 0, h, 0, w
+    while t < h // 4 and flat(img[t]):
+        t += 1
+    while b > h * 3 // 4 and flat(img[b - 1]):
+        b -= 1
+    while l < w // 4 and flat(img[:, l]):
+        l += 1
+    while r > w * 3 // 4 and flat(img[:, r - 1]):
+        r -= 1
+    # Moldura de print (4 lados) ou letterbox (2 lados opostos). Um lado só é conteúdo
+    # (janela estourada, parede escura na borda): não recorta.
+    if sum((t > 0, b < h, l > 0, r < w)) < 2:
+        return img
+    img = img[t:b, l:r]
+    h, w = img.shape[:2]
+    m = max(1, int(round(min(h, w) * inset)))  # cantos arredondados do print
+    return img[m:h - m, m:w - m]
 
 
 def decode_image_bytes(data: bytes, max_dim: int = MAX_ANALYSIS_DIM) -> np.ndarray:
@@ -111,8 +149,8 @@ def fold_missing(core: dict, roles: list[str], src_w: np.ndarray) -> dict:
         for r in present[:present.index(target)]:
             if core[r].enabled:
                 x = apply_cdl(x, core[r].cdl)
-        q = np.linspace(0, 1, 257)
-        xs = np.concatenate([np.quantile(x, q, axis=0), np.stack([q] * 3, axis=1)])
+        # Só os valores que a imagem tem (quantis por canal): o ajuste vale onde há pixel.
+        xs = np.quantile(x, np.linspace(0.002, 0.998, 400), axis=0)
         ys = xs
         for r in members:
             if r == target and not tc.enabled:
@@ -172,8 +210,13 @@ def analyze(
     prof = pf.get_profile(profile_key)
     # Estatística não precisa de resolução alta: 640 px no lado maior deixa a análise ~4× mais rápida.
     source_log = _limit(source_log, ANALYSIS_DIM)
-    reference_display = _limit(reference_display, ANALYSIS_DIM)
+    reference_display = trim_frame(_limit(reference_display, ANALYSIS_DIM))
     templates = templates if templates is not None else load_templates()
+    # Árvore que deve ser usada, se já dá para saber (escolhida no menu, ou a padrão da Automática).
+    tpl_pre = templates.get(options.template) if options.template != "auto" else (
+        templates.get(DEFAULT_TEMPLATE) if templates.get(DEFAULT_TEMPLATE) and templates[DEFAULT_TEMPLATE].drx
+        else None)
+    tree_has_skin = tpl_pre is None or "skin" in tpl_pre.roles()
     s = float(min(max(options.strength, 0.0), 1.0))
 
     options.report(5, "Aplicando Input CST…")
@@ -188,7 +231,9 @@ def analyze(
     ref_info = features.skin_info(ref_w, np.clip(reference_display, 0, 1))
     src_skin, ref_skin = src_info.mask, ref_info.mask
     skin_present = src_info.present
-    separate = options.separate_skin and skin_present and ref_info.present
+    # Separar pele e entorno só faz sentido se a árvore tem o nó SKIN para cuidar do rosto. Sem ele
+    # (Starter), a pele entra na conta: senão o contraste/ganho calculados no fundo estouram o rosto.
+    separate = options.separate_skin and skin_present and ref_info.present and tree_has_skin
 
     ref_stats = compute_stats(ref_w, exclude=ref_skin if separate else None)
     src_stats = compute_stats(src_w)
@@ -234,14 +279,23 @@ def analyze(
         if tn.kind in ("struct", "keysrc", "free"):
             continue  # mixer / fonte de chave / nó livre do colorista: nada a calcular ou escrever
         if tn.kind == "lut_in":
-            nodes.append(NodeSpec(i, tn.role, tn.label, tn.color, cdl=None, lut_path=luts["input_cst"], provenance=[
-                Provenance("LUT de CST", "curva log + matriz de gamut do profile -> DWG/DI",
+            cam = cst_ofx.CAMERA.get(profile_key)
+            native = f"Color Space Transform: {cam[0]} / {cam[1]} -> DaVinci Wide Gamut / Intermediate" if cam else None
+            nodes.append(NodeSpec(i, tn.role, tn.label, tn.color, cdl=None, lut_path=luts["input_cst"],
+                                  native_cst=native, provenance=[
+                Provenance("Color Space Transform" if native else "LUT de CST",
+                           "câmera -> DaVinci Wide Gamut / DaVinci Intermediate",
                            {"profile": f"{prof.brand} — {prof.label}", "gamut": prof.gamut},
-                           note="Origem: escolha do usuário (profile), não estatística da imagem.")]))
+                           note="Origem: escolha do usuário (profile), não estatística da imagem.")],
+                notes=[] if native else ["O CST do DaVinci não tem este perfil: o nó usa o LUT de CST do Titan Match."]))
         elif tn.kind == "lut_out":
-            nodes.append(NodeSpec(i, tn.role, tn.label, tn.color, cdl=None, lut_path=luts["output_cst"], provenance=[
-                Provenance("LUT de CST", "DWG/DI -> Rec.709 Gamma 2.4 com ombro suave",
-                           {"knee": pf.KNEE}, note="Transformação fixa de saída.")]))
+            native = ("Color Space Transform: DaVinci Wide Gamut / Intermediate -> Rec.709 / Gamma 2.4"
+                      if cst_ofx.has_cst(profile_key) else None)
+            nodes.append(NodeSpec(i, tn.role, tn.label, tn.color, cdl=None, lut_path=luts["output_cst"],
+                                  native_cst=native, provenance=[
+                Provenance("Color Space Transform" if native else "LUT de CST",
+                           "DaVinci Wide Gamut / Intermediate -> Rec.709 Gamma 2.4", {},
+                           note="Transformação fixa de saída.")]))
         elif tn.kind == "cdl":
             c = core[tn.role]
             nodes.append(NodeSpec(i, tn.role, tn.label, tn.color, cdl=c.cdl, enabled=c.enabled,

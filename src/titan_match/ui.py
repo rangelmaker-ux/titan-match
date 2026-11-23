@@ -894,7 +894,8 @@ class TitanMatchApp(tk.Tk):
             self.people_lbl.configure(text="👤 pele detectada (sem rosto)", fg=AMBER)
         else:
             self.people_lbl.configure(text="👤 nenhuma pessoa", fg=TEXT_MUTED)
-        get_logger().info("gerar: arvore=%s (%s) nos_ligados=%d verif=%s", a.plan.template_key, a.plan.template_reason,
+        get_logger().info("gerar: perfil=%s arvore=%s (%s) nos_ligados=%d verif=%s", a.plan.profile_key,
+                          a.plan.template_key, a.plan.template_reason,
                           sum(n.enabled for n in a.plan.nodes),
                           {k: a.plan.verification.get(k) for k in ("hist_dist_display_antes", "hist_dist_display_depois")})
         for t, name in zip(self.prev_titles, ["Antes (CST neutro)", "Depois (simulado)", "Referência"]):

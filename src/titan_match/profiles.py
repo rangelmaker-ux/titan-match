@@ -1,10 +1,11 @@
 """Profiles de câmera e as transformações Input CST / Output CST.
 
 Espaço de trabalho: DaVinci Wide Gamut / DaVinci Intermediate (DWG/DI).
-Saída: Rec.709 Gamma 2.4 com um ombro suave (invertível) acima de KNEE.
+Saída: Rec.709 Gamma 2.4 com um ombro suave (invertível) acima de KNEE. No DaVinci a saída é o
+Color Space Transform nativo (DWG/DI -> Rec.709 / Gamma 2.4); o LUT .cube fica de reserva.
 
-As mesmas funções geram os LUTs .cube aplicados no Resolve e as
-estatísticas da análise, então o que é medido é o que é aplicado.
+As mesmas funções geram os LUTs .cube de reserva e as estatísticas da análise, então o que é
+medido é o que é aplicado.
 """
 from __future__ import annotations
 
@@ -17,6 +18,8 @@ from . import colorspaces as cs
 
 WORKING_GAMUT = "DaVinci Wide Gamut"
 OUTPUT_GAMUT = "Rec.709"
+# Ombro suave acima de KNEE na simulação da saída. Só mexe nos 20% mais claros; sem ele, o branco
+# estourado da referência fica irrecuperável e o match piora muito (teste: erro de cor 3 -> 6).
 KNEE = 0.8
 
 
@@ -104,11 +107,15 @@ def input_cst(log_rgb: np.ndarray, profile: CameraProfile) -> np.ndarray:
 
 def _shoulder(x):
     k = KNEE
+    if k >= 1.0:
+        return np.minimum(x, 1.0)
     return np.where(x <= k, x, k + (1 - k) * (1 - np.exp(-(x - k) / (1 - k))))
 
 
 def _shoulder_inv(y):
     k = KNEE
+    if k >= 1.0:
+        return np.minimum(y, 1.0)
     y = np.minimum(y, 0.99999)
     return np.where(y <= k, y, k - (1 - k) * np.log(1 - (y - k) / (1 - k)))
 

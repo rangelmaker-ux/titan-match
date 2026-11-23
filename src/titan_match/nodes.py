@@ -60,6 +60,9 @@ class NodeSpec:
     cdl: CDL | None = None  # None para nós de CST (só LUT)
     lut_path: str | None = None
     enabled: bool = True
+    # CST nativo do DaVinci (ResolveFX Color Space Transform) no lugar do LUT; lut_path fica como reserva
+    # para quando a árvore já está no clipe sem o CST.
+    native_cst: str | None = None
     provenance: list[Provenance] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
@@ -72,6 +75,7 @@ class NodeSpec:
             "enabled": self.enabled,
             "cdl": self.cdl.as_dict() if self.cdl else None,
             "lut": self.lut_path,
+            "cst": self.native_cst,
             "provenance": [p.as_dict() for p in self.provenance],
             "notes": self.notes,
         }
