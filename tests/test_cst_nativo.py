@@ -22,9 +22,11 @@ def test_payload_tem_o_formato_do_davinci():
     assert p["inputColorSpace"] == "SGAMUT3CINE_COLORSPACE" and p["inputGamma"] == "SONY_SLOG3_GAMMA"
     assert p["outputColorSpace"] == "DWG_COLORSPACE" and p["outputGamma"] == "DAV_INTER_OETF_GAMMA"
     assert p["doFwdOOTF"] == 0 and p["doInvOOTF"] == 0 and p["resolvefxVersion"] == "1.4"
+    assert p["tmType"] == "TM_NONE"  # entrada sem tone mapping (o padrão "DaVinci" lavava a imagem)
     o = cst_ofx.params(cst_ofx.output_payload())
     assert (o["inputColorSpace"], o["outputColorSpace"], o["outputGamma"]) == (
         "DWG_COLORSPACE", "REC709_COLORSPACE", "TWOPOINTFOUR_GAMMA")
+    assert "tmType" not in o  # saída com o tone mapping padrão do DaVinci (ombro suave nas altas)
     # 564 bytes: o mesmo tamanho que o DaVinci 21 grava para um CST v2 com esses parâmetros
     assert len(cst_ofx.payload("REC709_COLORSPACE", "REC709_APPLE_GAMMA", *cst_ofx.WORKING,
                                inv_ootf=True)) == 564

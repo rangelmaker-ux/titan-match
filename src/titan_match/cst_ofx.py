@@ -7,8 +7,10 @@ do nó. O CST v2 grava os parâmetros como texto (só os que fogem do padrão), 
     outputColorSpace = DWG_COLORSPACE        outputGamma = DAV_INTER_OETF_GAMMA
 
 Os nomes internos e o nome que aparece no menu do CST foram lidos do próprio DaVinci Resolve 21
-(tabela de enums do fusionsystem.dll). Tone mapping e gamut mapping ficam no padrão do CST; a
-simulação da análise (profiles.output_cst) faz o mesmo, para medir o que o DaVinci aplica.
+(tabela de enums do fusionsystem.dll). Tone mapping: `tmType` (TM_NONE, TM_CLIP, TM_SIMPLE,
+TM_DRT_V1, TM_DRT_V2...); o padrão "DaVinci" não é gravado. Entrada com TM_NONE (conversão pura,
+igual à simulação); saída no padrão DaVinci, que faz o ombro suave das altas (a simulação usa
+profiles.KNEE). Gamut mapping fica no padrão (None).
 """
 from __future__ import annotations
 
@@ -64,15 +66,18 @@ def _param(name: str, value) -> list:
 
 
 def payload(in_space: str, in_gamma: str, out_space: str, out_gamma: str, *, instance: int = 41,
-            fwd_ootf: bool = False, inv_ootf: bool = False) -> bytes:
-    """Campo 10 de um nó com o CST v2 configurado (mesmo formato que o DaVinci 21 grava)."""
+            fwd_ootf: bool = False, inv_ootf: bool = False, tone_mapping: str | None = None) -> bytes:
+    """Campo 10 de um nó com o CST v2 configurado (mesmo formato que o DaVinci 21 grava).
+
+    tone_mapping: None deixa o padrão do DaVinci ("DaVinci", que não é gravado); "TM_NONE" desliga.
+    """
     params = [
         _param("doFwdOOTF", fwd_ootf), _param("doInvOOTF", inv_ootf),
         _param("inputColorSpace", in_space), _param("inputGamma", in_gamma),
         _param("isRec2390ScalingEnabled", False), _param("isRec2408ConversionEnabled", False),
         _param("outputColorSpace", out_space), _param("outputGamma", out_gamma),
         _param("resolvefxVersion", "1.4"),
-    ]
+    ] + ([_param("tmType", tone_mapping)] if tone_mapping else [])
     ofx = d.dump([[1, 0, 5195353], [2, 2, PLUGIN], [3, 2, CONTEXT], [4, 0, 1]] + params)
     inst = f"{CONTEXT.decode()}_{_CTX_ID}_{instance}".encode()
     return d.dump([
@@ -87,7 +92,9 @@ def payload(in_space: str, in_gamma: str, out_space: str, out_gamma: str, *, ins
 
 def input_payload(profile_key: str) -> bytes | None:
     cam = CAMERA.get(profile_key)
-    return payload(cam[0], cam[1], *WORKING, instance=41) if cam else None
+    # Tone mapping DESLIGADO na entrada: o padrão do CST ("DaVinci") comprime a imagem log ao levar
+    # para o DaVinci Intermediate e ela fica lavada/fria depois das correções (visto no DaVinci 21).
+    return payload(cam[0], cam[1], *WORKING, instance=41, tone_mapping="TM_NONE") if cam else None
 
 
 def output_payload() -> bytes:
