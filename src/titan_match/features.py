@@ -234,6 +234,14 @@ def haze_tint(ref_airlight_rgb, graded_display: np.ndarray, density: float) -> d
     gray_w = pf.display_to_working(np.array([[[base, base, base]]]))[0, 0]
     off = (col_w - gray_w) * HAZE_TINT_GAIN * float(np.clip(density, 0.0, 1.0))
     off = np.clip(off - off.mean(), -HAZE_TINT_MAX, HAZE_TINT_MAX)
+    # O corte pode desfazer a média zero; escala (não recentra) para manter só a tinta sem levantar o preto.
+    for _ in range(4):
+        m = off.mean()
+        if abs(m) < 1e-6:
+            break
+        lado = off > 0 if m > 0 else off < 0
+        off[lado] -= m * len(off) / max(int(lado.sum()), 1)
+        off = np.clip(off, -HAZE_TINT_MAX, HAZE_TINT_MAX)
     origem = ("luz atmosférica da referência" if w_air >= 0.99 else
               "tonalidade do grade (ar da referência neutro)" if w_air <= 0.01 else
               f"mistura: {round(w_air * 100)} % ar da referência + {round((1 - w_air) * 100)} % tonalidade do grade")
@@ -298,4 +306,50 @@ def decide_extras(src_working: np.ndarray, ref_working: np.ndarray, graded_displ
     look = film_emulation or grain or glow or hal
     out["look"] = Decision("look", look, "liga se film emulation pedida ou se grão/glow/halation foram detectados",
                            {})
+    return out
+
+
+# --------------------------------------------------------------- nitidez / mist (nó Sharpening)
+
+def detail_index(display: np.ndarray) -> float:
+    """Quanto detalhe fino a imagem tem, independente de contraste e (quase) de resolução.
+
+    Razão entre a energia da banda fina (imagem − desfoque σ=1) e da banda média (σ=1 − σ=3), na
+    luminância. Imagem nítida ≈ alta; imagem suave/com névoa ≈ baixa. Calculado no mesmo tamanho
+    de análise para referência e footage.
+    """
+    import cv2
+
+    y = np.einsum("...c,c->...", np.clip(np.asarray(display, np.float64), 0, 1)[..., :3],
+                  np.array([0.2126, 0.7152, 0.0722])).astype(np.float32)
+    b1 = cv2.GaussianBlur(y, (0, 0), 1.0)
+    b3 = cv2.GaussianBlur(y, (0, 0), 3.0)
+    fina = float(np.mean(np.abs(y - b1)))
+    media = float(np.mean(np.abs(b1 - b3)))
+    return fina / max(media, 1e-6)
+
+
+SHARP_RATIO = 1.15   # referência com ≥15% mais detalhe fino: nitidez
+SOFT_RATIO = 0.85    # referência com ≤85%: suave -> Mist
+
+
+def decide_sharpness(ref_display: np.ndarray, graded_display: np.ndarray) -> dict:
+    """Radius da paleta Blur (0,5 = neutro) e Mix do Mist para o nó Sharpening, pela referência.
+
+    Conservador: é ponto de partida para o colorista. Nitidez até Radius 0,40; Mist com Radius até
+    0,60 e Mix 20..60.
+    """
+    r_ref, r_src = detail_index(ref_display), detail_index(graded_display)
+    ratio = r_ref / max(r_src, 1e-6)
+    out = {"razao_detalhe": round(ratio, 3), "detalhe_ref": round(r_ref, 4), "detalhe_footage": round(r_src, 4)}
+    if ratio >= SHARP_RATIO:
+        k = float(np.clip((ratio - 1.0) / 0.6, 0.0, 1.0))
+        out.update(modo="nitidez", radius=round(0.5 - 0.10 * k, 3), mix=None,
+                   motivo=f"referência com {round((ratio - 1) * 100)}% mais detalhe fino que o footage")
+    elif ratio <= SOFT_RATIO:
+        k = float(np.clip((1.0 - ratio) / 0.4, 0.0, 1.0))
+        out.update(modo="mist", radius=round(0.5 + 0.10 * k, 3), mix=round(20 + 40 * k, 1),
+                   motivo=f"referência {round((1 - ratio) * 100)}% mais suave (difusa) que o footage")
+    else:
+        out.update(modo="nenhum", radius=0.5, mix=None, motivo="nitidez parecida: nó fica neutro")
     return out

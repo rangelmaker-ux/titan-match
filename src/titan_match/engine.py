@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import cst_ofx, features
+from . import cst_ofx, features, primarias
 from . import profiles as pf
 from .cdl import CDL, apply_cdl, apply_cdl_masked, fit_cdl
 from .lut import LUT_SUBFOLDER, build_cst_luts
@@ -168,6 +168,7 @@ def fold_missing(core: dict, roles: list[str], src_w: np.ndarray) -> dict:
 
 
 DEFAULT_TEMPLATE = "starter"
+REF_CLIP = 0.97  # display: acima disso o pixel da referência está no ombro/corte da saída
 
 
 def choose_template(templates: dict[str, Template], requested: str, wants: dict[str, bool]) -> tuple[Template, str]:
@@ -235,7 +236,14 @@ def analyze(
     # (Starter), a pele entra na conta: senão o contraste/ganho calculados no fundo estouram o rosto.
     separate = options.separate_skin and skin_present and ref_info.present and tree_has_skin
 
-    ref_stats = compute_stats(ref_w, exclude=ref_skin if separate else None)
+    # Pixels da referência quase estourados (algum canal >= 0,97 no display) não dizem a cor da cena:
+    # a curva de saída do DaVinci é quase plana ali, e a inversa transforma diferenças mínimas em
+    # valores de cena enormes. Ficam fora da estatística da referência.
+    ref_clip = np.asarray(reference_display).max(axis=-1) >= REF_CLIP
+    if ref_clip.mean() > 0.6:  # quase tudo estourado: melhor usar tudo do que nada
+        ref_clip[:] = False
+    ref_excl = ref_clip | (ref_skin if separate else False)
+    ref_stats = compute_stats(ref_w, exclude=ref_excl if ref_excl.any() else None)
     src_stats = compute_stats(src_w)
     options.source_exclude = src_skin if separate else None
 
@@ -299,7 +307,8 @@ def analyze(
         elif tn.kind == "cdl":
             c = core[tn.role]
             nodes.append(NodeSpec(i, tn.role, tn.label, tn.color, cdl=c.cdl, enabled=c.enabled,
-                                  provenance=c.provenance, notes=c.notes))
+                                  provenance=c.provenance, notes=c.notes,
+                                  primarias=primarias.from_cdl(c.cdl) if not c.cdl.is_identity() else None))
         elif tn.kind == "skin":
             if skin_corr is None:
                 why = "Proteção de pele desligada." if not options.protect_skin else "Sem pele suficiente na imagem."
@@ -307,6 +316,12 @@ def analyze(
             else:
                 nodes.append(NodeSpec(i, tn.role, tn.label, tn.color, cdl=skin_corr.cdl, enabled=skin_corr.enabled,
                                       provenance=skin_corr.provenance, notes=skin_corr.notes))
+        elif tn.kind == "fx":  # nitidez / mist pela referência (paleta Blur no .drx)
+            sh = features.decide_sharpness(np.clip(reference_display, 0, 1), pf.output_cst(graded_for_extras))
+            prim = primarias.nitidez(sh["radius"], sh["mix"]) if sh["modo"] != "nenhum" else None
+            nodes.append(NodeSpec(i, tn.role, tn.label, tn.color, cdl=None, enabled=True, primarias=prim,
+                                  provenance=[Provenance("paleta Blur", sh["motivo"], _jsonable(sh))],
+                                  notes=[f"Sharpening: {sh['modo']} ({sh['motivo']})."]))
         else:  # toggle: efeito pré-configurado no template
             d = extras.get(tn.role)
             on = bool(d and d.enabled)

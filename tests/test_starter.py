@@ -45,7 +45,7 @@ def test_starter_combina_as_correcoes_sem_no():
     log, ref = make_pair()
     base = analyze(ref, log, "sony_slog3", options=MatchOptions(template="basico")).plan
     st = analyze(ref, log, "sony_slog3", options=MatchOptions(template="starter")).plan
-    assert [n.label for n in st.nodes] == ["CST in", "Exp/bal", "Contrast", "Sat", "CST out"]
+    assert [n.label for n in st.nodes] == ["CST in", "Exp/bal", "Contrast", "Sat", "CST out", "Sharpening"]
     contrast = st.node("exposure_contrast")
     assert any("Inclui" in n for n in contrast.notes)
     v = st.verification

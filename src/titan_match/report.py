@@ -22,6 +22,11 @@ def format_dry_run(plan: GradePlan) -> str:
             lines.append(f"    {n.native_cst}")
         elif n.lut_path:
             lines.append(f"    LUT: {n.lut_path}")
+        if n.primarias:
+            from .primarias import legivel
+
+            for k, v in legivel(n.primarias).items():
+                lines.append(f"    {k}: {v}")
         if n.cdl is not None:
             d = n.cdl.as_dict()
             lines.append(f"    Slope  {d['slope']}")

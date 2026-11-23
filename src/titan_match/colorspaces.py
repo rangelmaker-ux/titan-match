@@ -65,7 +65,7 @@ def vlog_decode(y):
 
 
 def clog3_decode(y):
-    """Canon Log 3 v1.2 (código normalizado; as constantes já estão em faixa legal), saída em reflectância."""
+    """Canon Log 3 v1.2 (código normalizado; as constantes já estão em faixa legal), como o CST do DaVinci."""
     t = np.asarray(y, dtype=np.float64)
     x = np.where(
         t < 0.097465473,
@@ -76,7 +76,7 @@ def clog3_decode(y):
             (10.0 ** ((t - 0.12240537) / 0.36726845) - 1.0) / 14.98325,
         ),
     )
-    return x * 0.9
+    return x  # sem o fator 0,9: o CST do DaVinci 21 não aplica (medido: razão 1/0,9)
 
 
 def logc3_decode(t):
@@ -118,11 +118,11 @@ def slog2_decode(y):
 
 
 def clog_decode(y):
-    """Canon Log v1.2 (constantes em faixa legal), saída em reflectância."""
+    """Canon Log v1.2 (constantes em faixa legal), como o CST do DaVinci."""
     t = np.asarray(y, dtype=np.float64)
     k = 0.12512248
     x = np.where(t < k, -(10.0 ** ((k - t) / 0.45310179) - 1) / 10.1596, (10.0 ** ((t - k) / 0.45310179) - 1) / 10.1596)
-    return x * 0.9
+    return x  # sem o fator 0,9: o CST do DaVinci 21 não aplica (medido: razão 1/0,9)
 
 
 def clog2_decode(y):
@@ -131,7 +131,7 @@ def clog2_decode(y):
     k = 0.092864125
     x = np.where(t < k, -(10.0 ** ((k - t) / 0.24136077) - 1) / 87.09937546,
                  (10.0 ** ((t - k) / 0.24136077) - 1) / 87.09937546)
-    return x * 0.9
+    return x  # sem o fator 0,9: o CST do DaVinci 21 não aplica (medido: razão 1/0,9)
 
 
 def _flog(y, cut2, a, b, c, d, e, f):

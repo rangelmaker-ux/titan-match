@@ -43,7 +43,10 @@ def test_match_improves_histogram_for_every_profile(profile):
     # Curvas que saturam abaixo do pico da cena sintética (2,56 linear, ex.: Protune = 1,0)
     # perdem as altas no próprio footage; o residual tolerado é um pouco maior.
     clips = float(PROFILES[profile].decode(np.array(1.0))) < 2.56
-    assert np.abs(v["delta_lab_medios_depois"]).max() < (3.5 if clips else 3.0), v
+    # Simulação = DaVinci (nó medido e tone mapping "DaVinci" do CST de saída). A cena sintética tem
+    # pico de 2,56 linear, que a curva de saída comprime muito; o resíduo de cor média fica em ~4
+    # (~7 nas curvas que já estouram no footage). Antes a simulação usava outra saída e dava ~3.
+    assert np.abs(v["delta_lab_medios_depois"]).max() < (7.5 if clips else 5.0), v
 
 
 def test_identity_when_reference_equals_footage():

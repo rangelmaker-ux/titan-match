@@ -25,7 +25,7 @@ from pathlib import Path
 import numpy as np
 
 from . import lut as lutmod
-from . import cst_ofx, drx_layout
+from . import cst_ofx, drx_layout, primarias
 from .cdl import CDL
 from .engine import decode_image_bytes, export_luts
 from .nodes import GradePlan
@@ -370,11 +370,12 @@ class ResolveBridge:
 
     def fill_block(self, item, plan: GradePlan, *, approved: bool, overwrite_titan: bool = False,
                    lut_root: Path | None = None, reference_display: np.ndarray | None = None,
-                   cst_no_drx: bool = False) -> ApplyReport:
+                   cst_no_drx: bool = False, primarias_no_drx: bool = False) -> ApplyReport:
         """Preenche os nós Titan (achados pelo label) com o plano.
 
         cst_no_drx: os nós de CST acabaram de vir do .drx com o Color Space Transform nativo da câmera
-        (versão nova); aí não recebem LUT. Na árvore que já estava no clipe, o CST nativo só é mantido
+        (versão nova); aí não recebem LUT. primarias_no_drx: as correções já foram gravadas nos controles
+        das Primárias pelo .drx; os nós não recebem SetCDL. Na árvore que já estava no clipe, o CST nativo só é mantido
         se o nó já tiver um Color Space Transform; senão o nó recebe o LUT de CST (reserva).
         """
         if not approved:
@@ -405,7 +406,8 @@ class ResolveBridge:
                 if not (g.GetLUT(idx) or ""):
                     rep.errors.append(f"LUT do nó {idx} não aplicado: o Resolve não achou {Path(n.lut_path).name} "
                                       f"(pastas de LUT: {', '.join(str(r) for r in lut_roots())}).")
-            if n.cdl is not None and (ROLE_INFO[n.role][0] in ("cdl", "skin") or n.role == "haze"):
+            ja_no_drx = primarias_no_drx and bool(n.primarias)
+            if n.cdl is not None and not ja_no_drx and (ROLE_INFO[n.role][0] in ("cdl", "skin") or n.role == "haze"):
                 self._call(rep, f"SetCDL({idx})", item.SetCDL(n.cdl.to_resolve(idx)))
             enabled = bool(n.enabled)
             if n.role == "skin" and enabled:
@@ -476,29 +478,40 @@ class ResolveBridge:
             raise ResolveError("LoadVersionByName falhou; a versão foi criada mas não carregada.")
         g = item.GetNodeGraph()
         with tempfile.TemporaryDirectory(prefix="titan_cst_") as tmp:
-            drx, nativo = self._drx_com_cst(template_drx, plan, Path(tmp))
+            drx, nativo, prim = self._drx_preparado(template_drx, plan, Path(tmp))
             if animate:
                 self._animate_tree(g, drx, on_frame)
             if not g.ApplyGradeFromDRX(str(drx), 0):
                 raise ResolveError("ApplyGradeFromDRX falhou na nova versão.")
         rep = self.fill_block(item, plan, approved=True, overwrite_titan=True, lut_root=lut_root,
-                              reference_display=reference_display, cst_no_drx=nativo)
+                              reference_display=reference_display, cst_no_drx=nativo,
+                              primarias_no_drx=prim)
         rep.mode = "new_version"
         rep.version_created = name
         rep.original_version = original
         return rep
 
     @staticmethod
-    def _drx_com_cst(template_drx: Path, plan: GradePlan, tmp: Path) -> tuple[Path, bool]:
-        """Cópia do template com o Color Space Transform nativo da câmera nos nós de CST."""
+    def _drx_preparado(template_drx: Path, plan: GradePlan, tmp: Path) -> tuple[Path, bool, bool]:
+        """Cópia do template com o CST nativo da câmera e as correções nos controles das Primárias.
+
+        Devolve (drx, CST nativo gravado, Primárias gravadas).
+        """
+        xml = template_drx.read_text(encoding="utf-8")
         ins = {n.label for n in plan.nodes if n.role == "input_cst" and n.native_cst}
         outs = {n.label for n in plan.nodes if n.role == "output_cst" and n.native_cst}
-        if not ins:
-            return template_drx, False
-        xml = cst_ofx.aplicar_no_drx(template_drx.read_text(encoding="utf-8"), plan.profile_key, ins, outs)
+        cst = bool(ins)
+        if cst:
+            xml = cst_ofx.aplicar_no_drx(xml, plan.profile_key, ins, outs)
+        prim = {n.label: n.primarias for n in plan.nodes
+                if n.primarias and ROLE_INFO[n.role][0] in ("cdl", "fx")}
+        if prim:
+            xml = primarias.aplicar_no_drx(xml, prim)
+        if not cst and not prim:
+            return template_drx, False, False
         out = tmp / template_drx.name
         out.write_text(xml, encoding="utf-8", newline="")
-        return out, True
+        return out, cst, bool(prim)
 
     @staticmethod
     def _animate_tree(g, template_drx: Path, on_frame=None, delay: float = 0.12) -> int:

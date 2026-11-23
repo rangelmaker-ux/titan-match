@@ -6,6 +6,14 @@ from typing import Any
 
 from .cdl import CDL
 
+
+def _legivel(p):
+    if not p:
+        return None
+    from .primarias import legivel
+
+    return legivel(p)
+
 # Ordem fixa e não negociável: um nó por responsabilidade.
 NODE_ROLES: list[tuple[str, str, str]] = [
     # (role, label, cor do nó no Resolve)
@@ -63,6 +71,9 @@ class NodeSpec:
     # CST nativo do DaVinci (ResolveFX Color Space Transform) no lugar do LUT; lut_path fica como reserva
     # para quando a árvore já está no clipe sem o CST.
     native_cst: str | None = None
+    # Controles das Primárias do DaVinci (id do parâmetro -> valor gravado) que reproduzem o `cdl`;
+    # gravados direto no .drx quando a árvore é aplicada numa versão nova (ver primarias.py).
+    primarias: dict[int, float] | None = None
     provenance: list[Provenance] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
@@ -76,6 +87,7 @@ class NodeSpec:
             "cdl": self.cdl.as_dict() if self.cdl else None,
             "lut": self.lut_path,
             "cst": self.native_cst,
+            "primarias": _legivel(self.primarias),
             "provenance": [p.as_dict() for p in self.provenance],
             "notes": self.notes,
         }

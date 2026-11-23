@@ -1,8 +1,9 @@
 """Profiles de câmera e as transformações Input CST / Output CST.
 
 Espaço de trabalho: DaVinci Wide Gamut / DaVinci Intermediate (DWG/DI).
-Saída: Rec.709 Gamma 2.4 com um ombro suave (invertível) acima de KNEE. No DaVinci a saída é o
-Color Space Transform nativo (DWG/DI -> Rec.709 / Gamma 2.4); o LUT .cube fica de reserva.
+Saída: Rec.709 Gamma 2.4 com o tone mapping "DaVinci" do Color Space Transform (padrão do CST de
+saída), medido no DaVinci Resolve 21: uma curva por canal no DaVinci Wide Gamut, antes da matriz
+para Rec.709 (tabela TM_DISPLAY). Entradas também conferidas no DaVinci (ExportLUT), perfil a perfil.
 
 As mesmas funções geram os LUTs .cube de reserva e as estatísticas da análise, então o que é
 medido é o que é aplicado.
@@ -18,9 +19,27 @@ from . import colorspaces as cs
 
 WORKING_GAMUT = "DaVinci Wide Gamut"
 OUTPUT_GAMUT = "Rec.709"
-# Ombro suave acima de KNEE na simulação da saída. Só mexe nos 20% mais claros; sem ele, o branco
-# estourado da referência fica irrecuperável e o match piora muito (teste: erro de cor 3 -> 6).
-KNEE = 0.8
+# Tone mapping "DaVinci" do CST de saída (DWG/DI -> Rec.709/Gamma 2.4), medido no DaVinci 21:
+# valor exibido (Gamma 2.4) de um cinza com código DI = linspace(0, 1, 65). Aplicado por canal no
+# DaVinci Wide Gamut, antes da matriz para Rec.709 (modelo conferido no LUT exportado: erro 0,0).
+TM_DISPLAY = np.array([
+    0.0, 0.069078, 0.092241, 0.110872, 0.128023, 0.144472, 0.160678, 0.176883, 0.193286, 0.21001,
+    0.227161, 0.244846, 0.263111, 0.282017, 0.30161, 0.321935, 0.343008, 0.364828, 0.387427, 0.410773,
+    0.434821, 0.459541, 0.484871, 0.510704, 0.536965, 0.563516, 0.590234, 0.616938, 0.643473, 0.669673,
+    0.695354, 0.720348, 0.744488, 0.767636, 0.789654, 0.810452, 0.829938, 0.848066, 0.864836, 0.880217,
+    0.89424, 0.906981, 0.918456, 0.928771, 0.937972, 0.946181, 0.953445, 0.959869, 0.96553, 0.970504,
+    0.974853, 0.978668, 0.981994, 0.984909, 0.987427, 0.989624, 0.991531, 0.993194, 0.994629, 0.99588,
+    0.996963, 0.997894, 0.998703, 0.99939, 1.0])
+_TM_X = np.linspace(0.0, 1.0, TM_DISPLAY.size)
+_TM_LIN = cs.gamma24_decode(TM_DISPLAY)
+
+# Matrizes câmera -> DWG (linear) medidas no CST do DaVinci quando diferem das primárias publicadas.
+# "Sony SGamut3.Cine Venice" no DaVinci é bem menos saturado que o S-Gamut3.Cine comum.
+MATRIX_TO_DWG: dict[str, np.ndarray] = {
+    "sony_slog3_venice": np.array([[0.562764, 0.323515, 0.113714],
+                                   [0.077753, 0.749574, 0.172665],
+                                   [0.064668, 0.191996, 0.743328]]),
+}
 
 
 @dataclass(frozen=True)
@@ -101,39 +120,27 @@ def get_profile(key: str) -> CameraProfile:
 def input_cst(log_rgb: np.ndarray, profile: CameraProfile) -> np.ndarray:
     """Footage codificado no profile da câmera -> DWG/DI."""
     lin = profile.decode(log_rgb)
-    lin_dwg = cs.apply_matrix(cs.gamut_matrix(profile.gamut, WORKING_GAMUT), lin)
+    m = MATRIX_TO_DWG.get(profile.key)
+    lin_dwg = cs.apply_matrix(m if m is not None else cs.gamut_matrix(profile.gamut, WORKING_GAMUT), lin)
     return cs.di_encode(lin_dwg)
 
 
-def _shoulder(x):
-    k = KNEE
-    if k >= 1.0:
-        return np.minimum(x, 1.0)
-    return np.where(x <= k, x, k + (1 - k) * (1 - np.exp(-(x - k) / (1 - k))))
-
-
-def _shoulder_inv(y):
-    k = KNEE
-    if k >= 1.0:
-        return np.minimum(y, 1.0)
-    y = np.minimum(y, 0.99999)
-    return np.where(y <= k, y, k - (1 - k) * np.log(1 - (y - k) / (1 - k)))
-
-
 def output_cst(working: np.ndarray) -> np.ndarray:
-    """DWG/DI -> Rec.709 Gamma 2.4 (display), em [0, 1]."""
-    lin = cs.apply_matrix(cs.gamut_matrix(WORKING_GAMUT, OUTPUT_GAMUT), cs.di_decode(working))
-    return np.clip(cs.gamma24_encode(_shoulder(np.clip(lin, 0.0, None))), 0.0, 1.0)
+    """DWG/DI -> Rec.709 Gamma 2.4 (display), em [0, 1], como o CST de saída do DaVinci."""
+    t = np.interp(np.clip(working, 0.0, 1.0), _TM_X, _TM_LIN)
+    lin = cs.apply_matrix(cs.gamut_matrix(WORKING_GAMUT, OUTPUT_GAMUT), t)
+    return np.clip(cs.gamma24_encode(np.clip(lin, 0.0, None)), 0.0, 1.0)
 
 
 def display_to_working(display: np.ndarray) -> np.ndarray:
-    """Inverso exato de output_cst para valores dentro do gamut Rec.709.
+    """Inverso de output_cst (dentro do gamut Rec.709).
 
-    Usado para levar a imagem de referência (já renderizada) ao espaço de
-    trabalho: a comparação nunca é feita log x imagem renderizada.
+    Usado para levar a imagem de referência (já renderizada) ao espaço de trabalho: a comparação
+    nunca é feita log x imagem renderizada.
     """
-    lin709 = _shoulder_inv(cs.gamma24_decode(np.clip(display, 0.0, 1.0)))
-    return cs.di_encode(cs.apply_matrix(cs.gamut_matrix(OUTPUT_GAMUT, WORKING_GAMUT), lin709))
+    lin709 = cs.gamma24_decode(np.clip(display, 0.0, 1.0))
+    t = cs.apply_matrix(cs.gamut_matrix(OUTPUT_GAMUT, WORKING_GAMUT), lin709)
+    return np.interp(np.clip(t, 0.0, 1.0), _TM_LIN, _TM_X)
 
 
 def working_to_lab(working: np.ndarray) -> np.ndarray:

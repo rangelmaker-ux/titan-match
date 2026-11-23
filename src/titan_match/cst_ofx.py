@@ -9,8 +9,8 @@ do nó. O CST v2 grava os parâmetros como texto (só os que fogem do padrão), 
 Os nomes internos e o nome que aparece no menu do CST foram lidos do próprio DaVinci Resolve 21
 (tabela de enums do fusionsystem.dll). Tone mapping: `tmType` (TM_NONE, TM_CLIP, TM_SIMPLE,
 TM_DRT_V1, TM_DRT_V2...); o padrão "DaVinci" não é gravado. Entrada com TM_NONE (conversão pura,
-igual à simulação); saída no padrão DaVinci, que faz o ombro suave das altas (a simulação usa
-profiles.KNEE). Gamut mapping fica no padrão (None).
+igual à simulação); saída no padrão DaVinci, que faz o ombro suave das altas (a simulação usa a
+mesma curva, medida: profiles.TM_DISPLAY). Gamut mapping fica no padrão (None).
 """
 from __future__ import annotations
 

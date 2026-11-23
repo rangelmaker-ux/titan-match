@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 import numpy as np
 
 REC709_LUMA = np.array([0.2126, 0.7152, 0.0722])
+# Pesos que a Saturation do DaVinci usa (medidos no Resolve 21: L = 0,21 R + 0,70 G + 0,09 B).
+SAT_LUMA = np.array([0.21, 0.70, 0.09])
 
 
 @dataclass
@@ -51,11 +53,17 @@ class CDL:
 
 
 def apply_cdl(rgb: np.ndarray, cdl: CDL) -> np.ndarray:
-    """ASC CDL v1.2: (in*slope + offset) com clamp [0,1], ^power, depois saturação (luma Rec.709)."""
+    """CDL como o nó do DaVinci aplica (medido no Resolve 21 com ExportLUT).
+
+    (in·slope + offset) sem corte, potência que preserva o sinal (sinal·|x|^power), saturação com os
+    pesos do DaVinci (SAT_LUMA). O corte em [0, 1] fica só no fim, para as etapas seguintes.
+    """
     x = rgb * np.asarray(cdl.slope) + np.asarray(cdl.offset)
-    x = np.clip(x, 0.0, 1.0) ** np.asarray(cdl.power)
+    p = np.asarray(cdl.power)
+    if not np.allclose(p, 1.0):
+        x = np.sign(x) * np.abs(x) ** p
     if cdl.saturation != 1.0:
-        luma = np.einsum("...c,c->...", x, REC709_LUMA)[..., None]
+        luma = np.einsum("...c,c->...", x, SAT_LUMA)[..., None]
         x = luma + cdl.saturation * (x - luma)
     return np.clip(x, 0.0, 1.0)
 

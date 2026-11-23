@@ -24,13 +24,13 @@ def test_gamut_matrix_rows_preserve_white():
     [
         (cs.slog3_decode, "S-Log3", {}),
         (cs.vlog_decode, "V-Log", {}),
-        (cs.clog3_decode, "Canon Log 3", {}),
+        (lambda y: cs.clog3_decode(y) * 0.9, "Canon Log 3", {}),  # DaVinci não usa o 0,9 da Canon
         (cs.logc3_decode, "ARRI LogC3", {}),
         (cs.log3g10_decode, "Log3G10", {}),
         (cs.dlog_decode, "D-Log", {}),
         (cs.slog2_decode, "S-Log2", {}),
-        (cs.clog_decode, "Canon Log", {}),
-        (cs.clog2_decode, "Canon Log 2", {}),
+        (lambda y: cs.clog_decode(y) * 0.9, "Canon Log", {}),
+        (lambda y: cs.clog2_decode(y) * 0.9, "Canon Log 2", {}),
         (cs.flog_decode, "F-Log", {}),
         (cs.flog2_decode, "F-Log2", {}),
         (cs.nlog_decode, "N-Log", {}),

@@ -47,6 +47,8 @@ ROLE_INFO: dict[str, tuple[str, str]] = {
     "mixer": ("struct", ""),
     # Nó vazio de propósito (Starter: objetos, ADJ, power windows, look, sharpening): fica para o colorista.
     "free": ("free", ""),
+    # Nitidez / Mist pela referência (paleta Blur gravada no .drx).
+    "sharpen": ("fx", "Teal"),
 }
 # Roles que podem se repetir numa árvore (não têm correção própria).
 REPEATABLE = {"mixer", "free"}
@@ -137,9 +139,10 @@ STARTER = Template(
         ("saturation", "Sat"), ("free", "background"), ("free", "2nd obj"), ("free", "Main obj"), ("mixer", ""),
         ("free", "Global"), ("free", "ADJ 1"), ("free", "ADJ 2"), ("free", "ADJ 3"), ("free", "PW 1"),
         ("free", "PW 2"), ("free", "PW 3"), ("mixer", ""), ("free", "Final look"), ("free", "Fine Tune"),
-        ("output_cst", "CST out"), ("free", "Sharpening")]],
-    description="O match vai em Exp/bal, Contrast e Sat (sombras, médios, altas e color balance combinados "
-                "no Contrast); objetos, ajustes, power windows, look, fine tune e sharpening ficam vazios.",
+        ("output_cst", "CST out"), ("sharpen", "Sharpening")]],
+    description="O match vai em Exp/bal (Offset), Contrast (Gain/Offset/Gamma) e Sat (Saturation); "
+                "Sharpening recebe nitidez ou mist pela referência; objetos, ajustes, power windows, look e "
+                "fine tune ficam vazios.",
     topology="CST in→Exp/bal→Contrast→Sat→[background ∥ 2nd obj ∥ Main obj]→mixer→Global→"
              "[ADJ 1-3 ∥ PW 1-3]→mixer→Final look→Fine Tune→CST out→Sharpening (20 índices)",
 )
